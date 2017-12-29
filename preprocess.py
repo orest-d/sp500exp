@@ -14,6 +14,7 @@ parser.add_argument('-n','--name',     help='Column-name column (Name)',default=
 parser.add_argument('-o','--output',   help='Output  (train.h5)',default="train.h5")
 parser.add_argument('-p','--process',  help='Process type (returns)',default="returns")
 parser.add_argument('-t','--test',     help='Number of samples in test (100)',default="100")
+parser.add_argument('-c','--scale',    help='Scale yes/no (yes)',default="yes")
 
 args = parser.parse_args()
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, filename='log.txt')
@@ -25,6 +26,7 @@ namecolumn = args.name
 outputfile = args.output
 process = args.process
 test = int(args.test)
+scale = args.scale
 
 logging.info("Input:        "+inputfile)
 logging.info("Storage:      "+storefile)
@@ -33,6 +35,7 @@ logging.info("Name column:  "+namecolumn)
 logging.info("Output:       "+outputfile)
 logging.info("Process:      "+process)
 logging.info("Test:         "+str(test))
+logging.info("Scale:        "+scale)
 
 if not exists(storefile):
     logging.info("Load csv")
@@ -40,7 +43,7 @@ if not exists(storefile):
 
     store = pd.HDFStore(storefile)
 
-    for column in df.columns:
+    for column in input_df.columns:
         if column in [indexcolumn,namecolumn]:
             continue
         logging.info("process "+column)
@@ -48,7 +51,7 @@ if not exists(storefile):
         store[column]=df
     store.close()
 
-def returns(store,output,test):
+def returns(store,output,test,scale):
     print("close")
     close=store["Close"].copy()
     close.fillna(method="ffill",inplace=True)
@@ -75,18 +78,20 @@ def returns(store,output,test):
     boundary=len(X)-test
     x_training=x[:boundary]
     x_test=x[boundary:]
-    scaler = preprocessing.StandardScaler().fit(x_training)
-    x_training=scaler.transform(x_training)
-    x_test=scaler.transform(x_test)
+    if scale.lower()=="yes":
+        scaler = preprocessing.StandardScaler().fit(x_training)
+        x_training=scaler.transform(x_training)
+        x_test=scaler.transform(x_test)
     output["X_training"]=pd.DataFrame(x_training,columns=X.columns,index=X.index[:boundary])
     output["X_test"]=pd.DataFrame(x_test,columns=X.columns,index=X.index[boundary:])
 
     y=Y.as_matrix()
     y_training=y[:boundary]
     y_test=y[boundary:]
-    scaler = preprocessing.StandardScaler().fit(y_training)
-    y_training=scaler.transform(y_training)
-    y_test=scaler.transform(y_test)
+    if scale.lower()=="yes":
+        scaler = preprocessing.StandardScaler().fit(y_training)
+        y_training=scaler.transform(y_training)
+        y_test=scaler.transform(y_test)
     output["Y_training"]=pd.DataFrame(y_training,columns=Y.columns,index=Y.index[:boundary])
     output["Y_test"]=pd.DataFrame(y_test,columns=Y.columns,index=Y.index[boundary:])
 
@@ -94,6 +99,6 @@ def returns(store,output,test):
 store = pd.HDFStore(storefile)
 output = pd.HDFStore(outputfile)
 process = eval(args.process)
-process(store,output,test)
+process(store,output,test,scale)
 store.close()
 output.close()
