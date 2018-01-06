@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import logging
 from os.path import exists
-from sklearn import preprocessing
 import argparse
 import sys
 
@@ -52,7 +51,13 @@ if not exists(storefile):
     store.close()
 
 def scale_df(df):
-    return pd.DataFrame(data=[dict(df.mean()),dict(df.std())],columns=df.columns,index=["mean","std"])
+    scale = pd.DataFrame(data=[dict(df.mean()),dict(df.std())],columns=df.columns,index=["mean","std"])
+    scale.loc["mean"].fillna(0,inplace=True)
+    scale.loc["std"].fillna(1,inplace=True)
+    v=scale.loc["std"].as_matrix()
+    v[v==0]=1
+    scale.loc["std"]=v
+    return scale
 
 def trivial_scale_df(df):
     return pd.DataFrame(data={c:(0,1) for c in df.columns},columns=df.columns,index=["mean","std"])
@@ -64,6 +69,10 @@ def inverse_scale_df(df,scale):
     return df*scale.loc["std"]+scale.loc["mean"]
 
 def make_output(output,X,Y,test,scale):
+    assert(len(X)==len(Y))
+    std = X.std().as_matrix()
+    X=X.loc[:,(std!=0) & np.isfinite(std)]
+
     boundary=len(X)-test
 
     x_training=X[:boundary]
@@ -160,6 +169,549 @@ def sigma10(store):
     X=close.join(returns).join(volume).join(sigma)
     X=X[N:-N]
     Y=sigma.shift(-N)[:-N]
+    return X,Y
+
+def sigma10a(store):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"_Return" for c in returns.columns]
+
+#    print("volume")
+#    volume = store["Volume"].copy()
+#    volume.fillna(method="ffill",inplace=True)
+#    volume.fillna(0,inplace=True)
+#    volume.columns=[c+"_Volume" for c in volume.columns]
+
+    print("sigma")
+    N=10
+    r=returns.as_matrix()
+    columns=[c+"_Sigma%d"%N for c in close.columns]
+    index=close.index[N:]
+    data = np.zeros((len(index),len(columns)),np.double)
+
+    for i in range(len(r)-N):
+        a=r[i:i+N,:]
+        data[i]=np.sqrt(np.sum(a*a,axis=0)/N)
+    sigma = pd.DataFrame(data,columns=columns,index=index)
+
+ #   X=close.join(returns).join(volume).join(sigma)
+    X=close.join(returns).join(sigma)
+    X=X[N:-N]
+    Y=sigma.shift(-int(N/2))[:-N]
+    return X,Y
+
+def sigma20f(store):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"_Return" for c in returns.columns]
+
+#    print("volume")
+#    volume = store["Volume"].copy()
+#    volume.fillna(method="ffill",inplace=True)
+#    volume.fillna(0,inplace=True)
+#    volume.columns=[c+"_Volume" for c in volume.columns]
+
+    print("sigma")
+    N=20
+    lag=10
+    r=returns.as_matrix()
+    columns=[c+"_Sigma%d"%N for c in close.columns]
+    index=close.index[N:]
+    data_a = np.zeros((len(index),len(columns)),np.double)
+    data_f = np.zeros((len(index),len(columns)),np.double)
+
+    for i in range(len(r)-N-lag):
+        a=r[i:i+N,:]
+        b=r[i+lag:i+N+lag,:]
+        sigma_a=np.sqrt(np.average(a*a,axis=0))
+        sigma_b=np.sqrt(np.average(b*b,axis=0))
+        f=sigma_b/sigma_a
+        f[~np.isfinite(f)]=1
+        data_a[i]=sigma_a
+        data_f[i]=f
+    sigma  = pd.DataFrame(data_a,columns=columns,index=index)
+    sigmaf = pd.DataFrame(data_f,columns=columns,index=index)
+    sigma.fillna(0,inplace=True)
+    sigmaf.fillna(1,inplace=True)
+
+#    X=close.join(returns).join(volume).join(sigma)
+    X=close.join(returns).join(sigma)
+    X=X[N:-N-lag]
+    Y=sigmaf[N:-lag]
+    return X,Y
+
+def min10(store):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+#    print("high")
+#    high=store["High"].copy()
+#    high.fillna(method="ffill",inplace=True)
+#    high.fillna(0,inplace=True)
+#    high.columns=[c+"_High" for c in close.columns]
+#
+#    print("low")
+#    low=store["Low"].copy()
+#    low.fillna(method="ffill",inplace=True)
+#    low.fillna(0,inplace=True)
+#    low.columns=[c+"_Low" for c in close.columns]
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"_Return" for c in returns.columns]
+
+    print("returns1")
+    returns1=(close.shift(1)-close.shift(2))/close.shift(1)
+    returns1.fillna(0,inplace=True)
+    returns1.columns=[c+"_Return1" for c in returns.columns]
+
+    print("min10")
+    N=10
+    r=returns.as_matrix()
+    columns=[c+"_Min%d"%N for c in close.columns]
+    index=close.index[N:]
+    data = np.zeros((len(index),len(columns)),np.double)
+
+    for i in range(len(r)-N):
+        a=r[i:i+N,:]
+        data[i]=np.min(a,axis=0)
+    d = pd.DataFrame(data,columns=columns,index=index)
+    d.fillna(0,inplace=True)
+
+#    X=close.join(high).join(low).join(returns).join(d)
+    X=close.join(returns).join(returns1).join(d)
+    X=X[N:-N]
+    Y=d.shift(-N)[:-N]
+    return X,Y
+
+def small(store):
+    print("close")
+    stock=["INTC"]
+    close=store["Close"].loc[:,stock].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"_Return" for c in returns.columns]
+
+    N=20        
+    r=returns.as_matrix()
+    columns=[c+"_%d"%N for c in close.columns]
+    index=close.index[N:]
+    data = np.zeros((len(index),len(columns)),np.double)
+    X=close
+    for i in range(len(r)-N):
+        a=r[i:i+N,:]
+        data[i]=np.sqrt(np.sum(a*a,axis=0)/N)
+    for i in range(N):
+        print("returns %02d"%i)
+        returns_i=(close.shift(i)-close.shift(i+1))/close.shift(i)
+        returns_i.fillna(0,inplace=True)
+        returns_i.columns=["%s_Return%02d"%(c,i) for c in close.columns]
+        X=X.join(returns_i)
+    d = pd.DataFrame(data,columns=columns,index=index)
+    d.fillna(0,inplace=True)
+
+    X=X[N:]
+    Y=d
+    return X,Y
+
+def small2(store):
+    print("close")
+    stock=["AAPL","INTC"]
+    stock=["INTC"]
+    close=store["Close"].loc[:,stock].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"_Return" for c in returns.columns]
+
+    N=20        
+    r=returns.as_matrix()
+    columns=[c+"_%d"%N for c in close.columns]
+    index=close.index[N:]
+    data = np.zeros((len(index),len(columns)),np.double)
+    X=close
+    for i in range(len(r)-N):
+        a=r[i:i+N,:]
+        data[i]=np.sqrt(np.sum(a*a,axis=0)/N)
+    for i in range(1,N+1):
+        print("Close %02d"%i)
+        close_i=close.shift(i)
+        close_i.fillna(0,inplace=True)
+        close_i.columns=["%s_Close%02d"%(c,i) for c in close.columns]
+        X=X.join(close_i)
+    d = pd.DataFrame(data,columns=columns,index=index)
+    d.fillna(0,inplace=True)
+
+    X=X[N:]
+    Y=d
+    return X,Y
+
+def name_to_pca_2(df1,df2,n_observations=100,n_components=20,normalize=True):
+    from sklearn import preprocessing
+    from sklearn.decomposition import PCA
+    df1=df1.fillna(method="ffill",inplace=False)
+    df1.fillna(0,inplace=True)
+    df2=df2.fillna(method="ffill",inplace=False)
+    df2.fillna(0,inplace=True)
+    names = df1.columns
+    assert(all(n1==n2 for n1,n2 in zip(df1.columns,df2.columns)))
+
+    m1=df1.as_matrix()
+    m1=m1[:n_observations]
+    m2=df1.as_matrix()
+    m2=m2[:n_observations]
+    
+    scaler1 = preprocessing.StandardScaler().fit(m1)
+    m1=scaler1.transform(m1)
+    scaler2 = preprocessing.StandardScaler().fit(m2)
+    m2=scaler2.transform(m2)
+    m=np.concatenate((m1,m2))
+
+    pca = PCA(n_components=n_components)
+    m_pca=pca.fit_transform(m.T)
+    print("explained variance ratio %s"%pca.explained_variance_ratio_)
+#    print("singular values          %s"%pca.singular_values_)
+    print (m_pca.shape)#,pca.inverse_transform(m_pca[0]))
+#    for a,b in zip(list(pca.inverse_transform(m_pca[0])),list(m[:,0])):
+#        print (a,b)
+    maxdev=0
+    for i in range(len(names)):
+        a=m[:,i]
+        b=pca.inverse_transform(m_pca[i])
+        delta = b-a
+        std=np.std(delta)
+#        print(i,np.mean(delta),std)
+        maxdev=max(maxdev,std)
+    print("maxdev %s"%maxdev)
+    return names,m_pca
+    
+def name_to_pca(df,n_observations=100,n_components=20,normalize=True):
+    from sklearn import preprocessing
+    from sklearn.decomposition import PCA
+    df=df.fillna(method="ffill",inplace=False)
+    df.fillna(0,inplace=True)
+    names = df.columns
+    m=df.as_matrix()
+    m=m[:n_observations]
+    scaler = preprocessing.StandardScaler().fit(m)
+    m=scaler.transform(m)
+    print(np.mean(m[:,0]),np.mean(m[0,:]),np.std(m[:,0]),np.std(m[0,:]))
+    print(m.shape)
+    pca = PCA(n_components=n_components)
+    m_pca=pca.fit_transform(m.T)
+    print("explained variance ratio %s"%pca.explained_variance_ratio_)
+#    print("singular values          %s"%pca.singular_values_)
+    print (m_pca.shape)#,pca.inverse_transform(m_pca[0]))
+#    for a,b in zip(list(pca.inverse_transform(m_pca[0])),list(m[:,0])):
+#        print (a,b)
+    maxdev=0
+    for i in range(len(names)):
+        a=m[:,i]
+        b=pca.inverse_transform(m_pca[i])
+        delta = b-a
+        std=np.std(delta)
+#        print(i,np.mean(delta),std)
+        maxdev=max(maxdev,std)
+    print("maxdev %s"%maxdev)
+    return names,m_pca
+
+def day_to_pca(df,n_observations=500,n_components=20,normalize=True):
+    from sklearn import preprocessing
+    from sklearn.decomposition import PCA
+    df=df.fillna(method="ffill",inplace=False)
+    df.fillna(0,inplace=True)
+    names = df.columns
+    days=df.index
+    m=df.as_matrix()
+    n_observations = len(m) if n_observations is None else n_observations
+    m=m[:n_observations]
+    m=m.T
+    scaler = preprocessing.StandardScaler().fit(m)
+    m=scaler.transform(m)
+    print(np.mean(m[:,0]),np.mean(m[0,:]),np.std(m[:,0]),np.std(m[0,:]))
+    print(m.shape)
+    pca = PCA(n_components=n_components)
+    m_pca=pca.fit_transform(m.T)
+    print("explained variance ratio %s"%pca.explained_variance_ratio_)
+#    print("singular values          %s"%pca.singular_values_)
+    print (m_pca.shape)#,pca.inverse_transform(m_pca[0]))
+#    for a,b in zip(list(pca.inverse_transform(m_pca[0])),list(m[:,0])):
+#        print (a,b)
+    maxdev=0
+    m=df.as_matrix()
+    m_pca=pca.transform(m)
+    print (m_pca.shape)#,pca.inverse_transform(m_pca[0]))
+    for i in range(n_observations):
+        a=m[i,:]
+        b=pca.inverse_transform(m_pca[i])
+        delta = b-a
+        std=np.std(delta)
+        #print(i,np.mean(delta),std)
+        maxdev=max(maxdev,std)
+    print("maxdev        %s"%maxdev)
+    for i in range(len(days)):
+        a=m[i,:]
+        b=pca.inverse_transform(m_pca[i])
+        delta = b-a
+        std=np.std(delta)
+#        print(i,np.mean(delta),std)
+        maxdev=max(maxdev,std)
+    print("maxdev (full) %s"%maxdev)
+    return days,m_pca
+
+def icorr(store,n_components=20):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    r=returns.as_matrix()
+
+    rnames,rpca=name_to_pca(returns,n_observations=100,n_components=n_components,normalize=True)
+    a_columns=["a%03d"%(i) for i in range(n_components)]
+    b_columns=["b%03d"%(i) for i in range(n_components)]
+    columns=["return"]+a_columns+b_columns
+    Y_columns=["result"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    index=0
+    for i,aname in enumerate(rnames):
+#        if aname not in ["INTC","AAPL"]:
+#            continue
+        print (i,aname)
+        for j,bname in enumerate(rnames):
+#            if bname not in ["INTC","AAPL"]:
+#                continue
+            print (i,j,aname,bname)
+            df=pd.DataFrame(columns=columns,index=range(index,index+len(r)))
+            df.loc[:,"return"]=returns[aname].as_matrix()
+            df.loc[:,a_columns]=rpca[i]
+            df.loc[:,b_columns]=rpca[j]
+            X=X.append(df)
+            df=pd.DataFrame(r[:,i]*r[:,j],columns=Y_columns,index=range(index,index+len(r)))
+            Y=Y.append(df)
+            index+=len(r)
+    return X,Y
+
+def rpcasigma1(store,n_components=25):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    sigma=returns.std()
+    r=returns.as_matrix()
+    
+    rnames,rpca=name_to_pca(returns,n_observations=200,n_components=n_components,normalize=True)
+    a_columns=["rpca%03d"%(i) for i in range(n_components)]
+    columns=a_columns
+    Y_columns=["sigma"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,aname in enumerate(rnames):
+        X.loc[i,a_columns]=np.array(rpca[i],dtype=np.double)
+        Y.loc[i,"sigma"]=float(sigma[aname])
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
+def rpcasigma_m(store,n_components=20):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    r=returns.as_matrix()
+    
+    days,pca=day_to_pca(returns,n_observations=500,n_components=n_components,normalize=True)
+    a_columns=["Mpca%03d"%(i) for i in range(n_components)]
+    columns=a_columns
+    Y_columns=["Msigma"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,day in enumerate(days):
+        X.loc[i,a_columns]=np.array(pca[i],dtype=np.double)
+        Y.loc[i,"Msigma"]=returns.loc[day].as_matrix().std()
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
+def rpcar_m(store,n_components=20):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    r=returns.as_matrix()
+    
+    days,pca=day_to_pca(returns,n_observations=500,n_components=n_components,normalize=True)
+    a_columns=["Mpca%03d"%(i) for i in range(n_components)]
+    columns=a_columns
+    Y_columns=returns.columns
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,day in enumerate(days):
+        if day not in returns.index:
+            continue
+        X.loc[i,a_columns]=np.array(pca[i],dtype=np.double)
+        Y.loc[i,Y_columns]=returns.loc[day]
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
+def cpcasigma1(store,n_components=25):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    sigma=returns.std()
+    r=returns.as_matrix()
+    
+    names,cpca=name_to_pca(close,n_observations=200,n_components=n_components,normalize=True)
+    a_columns=["cpca%03d"%(i) for i in range(n_components)]
+    columns=a_columns
+    Y_columns=["sigma"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,aname in enumerate(names):
+        X.loc[i,a_columns]=np.array(cpca[i],dtype=np.double)
+        Y.loc[i,"sigma"]=float(sigma[aname])
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
+def rc2pcasigma1(store,c_components=20,r_components=20):
+    return rcpcasigma1(store,c_components=c_components,r_components=r_components)
+def rc3pcasigma1(store,c_components=25,r_components=15):
+    return rcpcasigma1(store,c_components=c_components,r_components=r_components)
+def rc4pcasigma1(store,c_components=26,r_components=24):
+    return rcpcasigma1(store,c_components=c_components,r_components=r_components)
+def c50pcasigma1(store):
+    return cpcasigma1(store,n_components=50)
+def r50pcasigma1(store):
+    return rpcasigma1(store,n_components=50)
+
+def rcpcasigma1(store,c_components=25,r_components=25):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    sigma=returns.std()
+    r=returns.as_matrix()
+    
+    names,cpca=name_to_pca(close,n_observations=200,n_components=c_components,normalize=True)
+    names,rpca=name_to_pca(returns,n_observations=200,n_components=r_components,normalize=True)
+    cpca_columns=["cpca%03d"%(i) for i in range(c_components)]
+    rpca_columns=["rpca%03d"%(i) for i in range(r_components)]
+    columns=cpca_columns+rpca_columns
+    Y_columns=["sigma"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,aname in enumerate(names):
+        X.loc[i,cpca_columns]=np.array(cpca[i],dtype=np.double)
+        X.loc[i,rpca_columns]=np.array(rpca[i],dtype=np.double)
+        Y.loc[i,"sigma"]=float(sigma[aname])
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
+def crcpcasigma1(store,n_components=50):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    sigma=returns.std()
+    r=returns.as_matrix()
+    
+    names,pca=name_to_pca_2(close,returns,n_observations=200,n_components=n_components,normalize=True)
+    a_columns=["crcpca%03d"%(i) for i in range(n_components)]
+    columns=a_columns
+    Y_columns=["sigma"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,aname in enumerate(names):
+        X.loc[i,a_columns]=np.array(pca[i],dtype=np.double)
+        Y.loc[i,"sigma"]=float(sigma[aname])
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
     return X,Y
 
 store = pd.HDFStore(storefile)

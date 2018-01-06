@@ -1,0 +1,15 @@
+crcpcasigma1.h5  training:0.093625 test:0.239310
+ rcpcasigma1.h5  training:0.088345 test:0.157171
+  cpcasigma1.h5  training:0.087442 test:0.348159
+  rpcasigma1.h5  training:0.087822 test:0.477244
+r50pcasigma1.h5  training:0.092664 test:0.235537
+c50pcasigma1.h5  training:0.086570 test:0.456640
+
+ rcpcasigma1.h5  training:0.087363 test:0.138418
+rc2pcasigma1.h5  training:0.087662 test:0.256399
+rc3pcasigma1.h5  training:0.087467 test:0.268114
+rc4pcasigma1.h5  training:0.087160 test:0.229836
+
+
+
+
