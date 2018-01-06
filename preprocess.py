@@ -368,7 +368,7 @@ def small2(store):
     Y=d
     return X,Y
 
-def name_to_pca_2(df1,df2,n_observations=100,n_components=20,normalize=True):
+def name_to_pca_2(df1,df2,n_observations=100,n_components=20):
     from sklearn import preprocessing
     from sklearn.decomposition import PCA
     df1=df1.fillna(method="ffill",inplace=False)
@@ -407,7 +407,7 @@ def name_to_pca_2(df1,df2,n_observations=100,n_components=20,normalize=True):
     print("maxdev %s"%maxdev)
     return names,m_pca
     
-def name_to_pca(df,n_observations=100,n_components=20,normalize=True):
+def name_to_pca(df,n_observations=100,n_components=20):
     from sklearn import preprocessing
     from sklearn.decomposition import PCA
     df=df.fillna(method="ffill",inplace=False)
@@ -437,7 +437,7 @@ def name_to_pca(df,n_observations=100,n_components=20,normalize=True):
     print("maxdev %s"%maxdev)
     return names,m_pca
 
-def day_to_pca(df,n_observations=500,n_components=20,normalize=True):
+def day_to_pca(df,n_observations=500,n_components=20):
     from sklearn import preprocessing
     from sklearn.decomposition import PCA
     df=df.fillna(method="ffill",inplace=False)
@@ -494,7 +494,7 @@ def icorr(store,n_components=20):
     returns=returns[1:-1]
     r=returns.as_matrix()
 
-    rnames,rpca=name_to_pca(returns,n_observations=100,n_components=n_components,normalize=True)
+    rnames,rpca=name_to_pca(returns,n_observations=100,n_components=n_components)
     a_columns=["a%03d"%(i) for i in range(n_components)]
     b_columns=["b%03d"%(i) for i in range(n_components)]
     columns=["return"]+a_columns+b_columns
@@ -534,7 +534,7 @@ def rpcasigma1(store,n_components=25):
     sigma=returns.std()
     r=returns.as_matrix()
     
-    rnames,rpca=name_to_pca(returns,n_observations=200,n_components=n_components,normalize=True)
+    rnames,rpca=name_to_pca(returns,n_observations=200,n_components=n_components)
     a_columns=["rpca%03d"%(i) for i in range(n_components)]
     columns=a_columns
     Y_columns=["sigma"]
@@ -563,7 +563,7 @@ def rpcasigma_m(store,n_components=20):
     returns=returns[1:-1]
     r=returns.as_matrix()
     
-    days,pca=day_to_pca(returns,n_observations=500,n_components=n_components,normalize=True)
+    days,pca=day_to_pca(returns,n_observations=500,n_components=n_components)
     a_columns=["Mpca%03d"%(i) for i in range(n_components)]
     columns=a_columns
     Y_columns=["Msigma"]
@@ -592,7 +592,7 @@ def rpcar_m(store,n_components=20):
     returns=returns[1:-1]
     r=returns.as_matrix()
     
-    days,pca=day_to_pca(returns,n_observations=500,n_components=n_components,normalize=True)
+    days,pca=day_to_pca(returns,n_observations=500,n_components=n_components)
     a_columns=["Mpca%03d"%(i) for i in range(n_components)]
     columns=a_columns
     Y_columns=returns.columns
@@ -624,7 +624,7 @@ def cpcasigma1(store,n_components=25):
     sigma=returns.std()
     r=returns.as_matrix()
     
-    names,cpca=name_to_pca(close,n_observations=200,n_components=n_components,normalize=True)
+    names,cpca=name_to_pca(close,n_observations=200,n_components=n_components)
     a_columns=["cpca%03d"%(i) for i in range(n_components)]
     columns=a_columns
     Y_columns=["sigma"]
@@ -665,8 +665,8 @@ def rcpcasigma1(store,c_components=25,r_components=25):
     sigma=returns.std()
     r=returns.as_matrix()
     
-    names,cpca=name_to_pca(close,n_observations=200,n_components=c_components,normalize=True)
-    names,rpca=name_to_pca(returns,n_observations=200,n_components=r_components,normalize=True)
+    names,cpca=name_to_pca(close,n_observations=200,n_components=c_components)
+    names,rpca=name_to_pca(returns,n_observations=200,n_components=r_components)
     cpca_columns=["cpca%03d"%(i) for i in range(c_components)]
     rpca_columns=["rpca%03d"%(i) for i in range(r_components)]
     columns=cpca_columns+rpca_columns
@@ -677,6 +677,50 @@ def rcpcasigma1(store,c_components=25,r_components=25):
         X.loc[i,cpca_columns]=np.array(cpca[i],dtype=np.double)
         X.loc[i,rpca_columns]=np.array(rpca[i],dtype=np.double)
         Y.loc[i,"sigma"]=float(sigma[aname])
+
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
+def rcpca50sigma_m(store):
+    return rcpcasigma_m(store,c_components=50,r_components=50)
+def rcpca40sigma_m(store):
+    return rcpcasigma_m(store,c_components=40,r_components=40)
+def rcpca30sigma_m(store):
+    return rcpcasigma_m(store,c_components=30,r_components=30)
+def rcpca20sigma_m(store):
+    return rcpcasigma_m(store,c_components=20,r_components=20)
+
+def rcpcasigma_m(store,c_components=50,r_components=50):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    close=close[1:-1]
+    r=returns.as_matrix()
+    
+    cdays,cpca=day_to_pca(close,n_observations=500,n_components=c_components)
+    rdays,rpca=day_to_pca(returns,n_observations=500,n_components=r_components)
+    assert(len(cdays)==len(rdays))
+    assert(all(x==y for x,y in zip(cdays,rdays)))
+    cpca_columns=["cpcaM%03d"%(i) for i in range(c_components)]
+    rpca_columns=["rpcaM%03d"%(i) for i in range(r_components)]
+    columns=cpca_columns+rpca_columns
+    Y_columns=["sigmaM"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    for i,day in enumerate(rdays):
+        X.loc[day,cpca_columns]=np.array(cpca[i],dtype=np.double)
+        X.loc[day,rpca_columns]=np.array(rpca[i],dtype=np.double)
+        Y.loc[i,"sigmaM"]=returns.loc[day].as_matrix().std()
 
     X.to_csv("tmp.csv")
     X=pd.read_csv("tmp.csv",index_col=0)
@@ -698,7 +742,7 @@ def crcpcasigma1(store,n_components=50):
     sigma=returns.std()
     r=returns.as_matrix()
     
-    names,pca=name_to_pca_2(close,returns,n_observations=200,n_components=n_components,normalize=True)
+    names,pca=name_to_pca_2(close,returns,n_observations=200,n_components=n_components)
     a_columns=["crcpca%03d"%(i) for i in range(n_components)]
     columns=a_columns
     Y_columns=["sigma"]
@@ -713,6 +757,57 @@ def crcpcasigma1(store,n_components=50):
     Y.to_csv("tmp.csv")
     Y=pd.read_csv("tmp.csv",index_col=0)
     return X,Y
+
+def pcas_return(store):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    close=close[1:-1]
+    r=returns.as_matrix()
+    
+    market_components=40
+    stock_components=25
+    cdays,mcpca=day_to_pca(close,n_observations=500,n_components=market_components)
+    rdays,mrpca=day_to_pca(returns,n_observations=500,n_components=market_components)
+
+    cnames,cpca=name_to_pca(close,n_observations=500,n_components=stock_components)
+    rnames,rpca=name_to_pca(returns,n_observations=500,n_components=stock_components)
+
+    assert(len(cdays)==len(rdays))
+    assert(all(x==y for x,y in zip(cdays,rdays)))
+    assert(len(cnames)==len(rnames))
+    assert(all(x==y for x,y in zip(cnames,rnames)))
+    mcpca_columns=["cpcaM%03d"%(i) for i in range(market_components)]
+    mrpca_columns=["rpcaM%03d"%(i) for i in range(market_components)]
+    cpca_columns=["cpca%03d"%(i) for i in range(stock_components)]
+    rpca_columns=["rpca%03d"%(i) for i in range(stock_components)]
+    columns=mcpca_columns+mrpca_columns+cpca_columns+rpca_columns
+    Y_columns=["return"]
+    X=pd.DataFrame(columns=columns)
+    Y=pd.DataFrame(columns=Y_columns)
+    index=0
+    for i,day in enumerate(rdays[:3]):
+        print (i,day)
+        for j,name in enumerate(rnames):
+            X.loc[index,mcpca_columns]=np.array(mcpca[i],dtype=np.double)
+            X.loc[index,mrpca_columns]=np.array(mrpca[i],dtype=np.double)
+            X.loc[index,cpca_columns]=np.array(cpca[i],dtype=np.double)
+            X.loc[index,rpca_columns]=np.array(rpca[i],dtype=np.double)
+            Y.loc[index,"return"]=returns.loc[day,name]
+            index+=1
+#    X.to_csv("tmp.csv")
+#    X=pd.read_csv("tmp.csv",index_col=0)
+#    Y.to_csv("tmp.csv")
+#    Y=pd.read_csv("tmp.csv",index_col=0)
+    return X,Y
+
 
 store = pd.HDFStore(storefile)
 output = pd.HDFStore(outputfile)
