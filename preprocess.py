@@ -802,20 +802,88 @@ def pcas_return(store):
             X.loc[index,rpca_columns]=np.array(rpca[i],dtype=np.double)
             Y.loc[index,"return"]=returns.loc[day,name]
             index+=1
-#    X.to_csv("tmp.csv")
-#    X=pd.read_csv("tmp.csv",index_col=0)
-#    Y.to_csv("tmp.csv")
-#    Y=pd.read_csv("tmp.csv",index_col=0)
+    X.to_csv("tmp.csv")
+    X=pd.read_csv("tmp.csv",index_col=0)
+    Y.to_csv("tmp.csv")
+    Y=pd.read_csv("tmp.csv",index_col=0)
     return X,Y
 
+def _rc(store,outputstore):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close-close.shift(1))/close
+    returns.fillna(0,inplace=True)
+    returns.columns=[c+"" for c in returns.columns]
+    returns=returns[1:-1]
+    close=close[1:-1]
+    
+    
+    market_components=40
+    stock_components=25
+    cdays,mcpca=day_to_pca(close,n_observations=500,n_components=market_components)
+    rdays,mrpca=day_to_pca(returns,n_observations=500,n_components=market_components)
+
+    cnames,cpca=name_to_pca(close,n_observations=500,n_components=stock_components)
+    rnames,rpca=name_to_pca(returns,n_observations=500,n_components=stock_components)
+
+    assert(len(cdays)==len(rdays))
+    assert(all(x==y for x,y in zip(cdays,rdays)))
+    assert(len(cnames)==len(rnames))
+    assert(all(x==y for x,y in zip(cnames,rnames)))
+    assert(len(close.index)==len(cdays))
+    assert(all(x==y for x,y in zip(close.index,cdays)))
+    assert(len(returns.index)==len(cdays))
+    assert(all(x==y for x,y in zip(returns.index,cdays)))
+    assert(len(close.columns)==len(cnames))
+    assert(all(x==y for x,y in zip(close.columns,cnames)))
+    assert(len(returns.columns)==len(cnames))
+    assert(all(x==y for x,y in zip(returns.columns,cnames)))
+
+    mcpca_columns=["cpcaM%03d"%(i) for i in range(market_components)]
+    mrpca_columns=["rpcaM%03d"%(i) for i in range(market_components)]
+    cpca_columns=["cpca%03d"%(i) for i in range(stock_components)]
+    rpca_columns=["rpca%03d"%(i) for i in range(stock_components)]
+
+    days_df  = pd.DataFrame(np.concatenate((mcpca,mrpca),axis=1),
+                            columns=mcpca_columns+mrpca_columns,
+                            index=cdays)
+    names_df = pd.DataFrame(np.concatenate((cpca,rpca),axis=1),
+                            columns=cpca_columns+rpca_columns,
+                            index=cnames)
+
+    for name,df in [("Close",close),("Returns",returns),("Days",days_df),("Names",names_df)]:
+        print("Df:"+name)
+        outputstore[name] = df
+
+        if scale.lower()=="yes":
+            print ("Scale "+name)
+            df_scale = scale_df(df)
+        else:
+            print ("Trivial Scale "+name)
+            df_scale = trivial_scale_df(df)
+
+        df_scaled                       = rescale_df(df,df_scale)
+        df_scale.to_csv("x_scale.csv")
+        output["%s_scaled"%name]        = df_scaled
+        output["%s_scale"%name]         = df_scale
+    
 
 store = pd.HDFStore(storefile)
 output = pd.HDFStore(outputfile)
 logging.info("Process "+process_function)
 process = eval(process_function)
-X,Y=process(store)
-logging.info("Output "+process_function)
-make_output(output,X,Y,test,scale)
+
+if process_function[0]=="_":
+    process(store,output)
+else:
+    X,Y=process(store)
+    logging.info("Output "+process_function)
+    make_output(output,X,Y,test,scale)
+
 store.close()
 output.close()
 logging.info("Finished")
