@@ -821,6 +821,14 @@ def _rc(store,outputstore):
     returns=returns[1:-1]
     close=close[1:-1]
     
+    r=returns.as_matrix().T
+    cov=pd.DataFrame(columns=returns.columns,index=returns.columns)
+    for i,n in enumerate(returns.columns):
+        c=(r[i]*r).mean(axis=1)
+        cov.loc[n,:]=c
+    cov.to_csv("tmp.csv")
+    cov=pd.read_csv("tmp.csv",index_col=0)
+    outputstore["Covariance"]=cov
     
     market_components=40
     stock_components=25

@@ -18,7 +18,7 @@ parser.add_argument('-b','--batch',            help='Batch size (32)',default="3
 parser.add_argument('-e','--epochs',           help='Number of epochs (50)',default="50")
 parser.add_argument('-v','--validation',       help='Validation split (0)',default="0")
 parser.add_argument('-r','--regularization',   help='Kernel L2 regularization (0)',default="0")
-parser.add_argument('-p','--predict',          help='Prediction file (predict.h5)',default="predict.h5")
+parser.add_argument('-P','--predict',          help='Prediction file (predict.h5)',default="predict.h5")
 
 args = parser.parse_args()
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, filename='log.txt')

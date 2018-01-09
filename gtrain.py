@@ -18,7 +18,8 @@ parser.add_argument('-b','--batch',            help='Batch size (64)',default="6
 parser.add_argument('-e','--epochs',           help='Number of epochs (1)',default="1")
 parser.add_argument('-v','--validation',       help='Validation split (0)',default="0")
 parser.add_argument('-r','--regularization',   help='Kernel L2 regularization (0)',default="0")
-parser.add_argument('-p','--predict',          help='Prediction file (gpredict.h5)',default="gpredict.h5")
+parser.add_argument('-P','--predict',          help='Prediction file (gpredict.h5)',default="gpredict.h5")
+parser.add_argument('-p','--process',          help='Process (Sigma1)',default="Sigma1")
 
 args = parser.parse_args()
 logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, filename='log.txt')
@@ -31,6 +32,7 @@ epochs = int(args.epochs)
 validation_split = float(args.validation)
 regularization = float(args.regularization)
 predict = args.predict
+process = args.process
 
 logging.info("Input:                     "+inputfile)
 logging.info("Model:                     "+modelfile)
@@ -40,17 +42,17 @@ logging.info("Epochs:                    "+str(epochs))
 logging.info("Validation split:          "+str(validation_split))
 logging.info("Kernel L2 regularization:  "+str(regularization))
 logging.info("Prediction file:           "+predict)
+logging.info("Process:                   "+process)
 
 store = pd.HDFStore(inputfile)
 
 
 
 class ModelBasis:
-    def __init__(self,store, hidden_layers=3, regularization=0.0, batch_size=32, modelfile="gmodel.yaml", weightsfile="gweights.h5",restart=False):
+    def __init__(self,store, regularization=0.0, batch_size=32, modelfile="gmodel.yaml", weightsfile="gweights.h5",restart=False):
         self.batch_size=batch_size
         self.store=store
         self.regularization = regularization
-        self.hidden_layers = hidden_layers
         self.modelfile = modelfile
         self.weightsfile = weightsfile
         self.restart = restart
@@ -113,6 +115,7 @@ class SimpleModelArchitecture:
 class Sigma1(ModelBasis,SimpleModelArchitecture):
     test_days=10
     steps_per_epoch=100000
+    hidden_layers=3
     def number_of_inputs(self):
         days=len(store["Days_scaled"].columns)
         names=len(store["Names_scaled"].columns)        
@@ -122,7 +125,7 @@ class Sigma1(ModelBasis,SimpleModelArchitecture):
     def generate(self,test=False):
         store=self.store
         batch_size=self.batch_size
-        returns=store["Returns_scaled"]
+        returns=store["Returns"]
         days=store["Days_scaled"]
         names=store["Names_scaled"]
         if test:
@@ -134,20 +137,80 @@ class Sigma1(ModelBasis,SimpleModelArchitecture):
         r=returns.as_matrix()
         ddm=days.as_matrix()
         ndm=names.as_matrix()
+        cov=store["Covariance"].as_matrix()
+        dcov=cov.diagonal()
+        dcovstd=dcov.std()
+
         while True:
             np.random.shuffle(day_order)
             for i in day_order:
                 dv = ddm[i]
                 rv=r[i]
                 np.random.shuffle(names_order)
-                for j in range(nb):                
+                for j in range(nb):                                    
                     name_batch_index=names_order[j*batch_size:(j+1)*batch_size]
                     r_batch = rv[name_batch_index]
                     names_batch=ndm[name_batch_index]
                     X=np.concatenate((np.broadcast_to(dv,(batch_size,len(dv))),names_batch),axis=1)
-                    Y=(r_batch*r_batch).reshape((batch_size,1))
+                    Y=((r_batch*r_batch-dcov[name_batch_index])/dcovstd).reshape((batch_size,1))
+                    yield X,Y
+
+class Cov1(ModelBasis,SimpleModelArchitecture):
+    test_days=10
+    steps_per_epoch=100000
+    hidden_layers=2
+    def number_of_inputs(self):
+        days=len(store["Days_scaled"].columns)
+        names=len(store["Names_scaled"].columns)        
+        return days+names+names
+    def validation_steps(self):
+        return int(len(store["Names_scaled"].columns)*self.test_days/self.batch_size)        
+    def generate(self,test=False):
+        store=self.store
+        batch_size=self.batch_size
+        returns=store["Returns"]
+        days=store["Days_scaled"]
+        names=store["Names_scaled"]
+        if test:
+            day_order=np.arange(len(days)-self.test_days)
+        else:
+            day_order=len(days)-np.arange(self.test_days)-1
+        names_order=np.arange(len(names))
+        nb = int(len(names)/batch_size)
+        r=returns.as_matrix()
+        ddm=days.as_matrix()
+        ndm=names.as_matrix()
+        cov=store["Covariance"].as_matrix()
+        dcov=cov.diagonal()
+        dcovstd=dcov.std()
+
+        while True:
+            np.random.shuffle(day_order)
+            for i in day_order:
+                dv = ddm[i]
+                rv=r[i]
+                k=np.random.choice(names_order)
+#                for k in range(len(names)):
+
+                np.random.shuffle(names_order)
+                rk=rv[k]
+                name_k=ndm[k]
+#                for j in range(nb):
+                for j in [0]:
+                    name_batch_index=names_order[j*batch_size:(j+1)*batch_size]
+                    r_batch = rv[name_batch_index]
+                    names_batch=ndm[name_batch_index]
+                    dv_batch=np.broadcast_to(dv,(batch_size,len(dv)))
+                    name_k_batch=np.broadcast_to(name_k,(batch_size,len(name_k)))
+                    X=np.concatenate((dv_batch,name_k_batch,names_batch),axis=1)
+                    c=cov[k,name_batch_index]
+                    Y=((rk*r_batch-c)/c).reshape((batch_size,1))
                     yield X,Y
 
 
-m=Sigma1(store)
-m.fit()
+Process = eval(process)
+
+p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)
+    
+p.fit(epochs)
+p.save_weights()
