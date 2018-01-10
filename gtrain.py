@@ -189,28 +189,115 @@ class Cov1(ModelBasis,SimpleModelArchitecture):
             for i in day_order:
                 dv = ddm[i]
                 rv=r[i]
-                k=np.random.choice(names_order)
 #                for k in range(len(names)):
-
+                j=0
                 np.random.shuffle(names_order)
+                name_batch_index=names_order[j*batch_size:(j+1)*batch_size]
+                k=np.random.choice(names_order)
+                while k in name_batch_index:
+                    k=np.random.choice(names_order)
+
                 rk=rv[k]
                 name_k=ndm[k]
 #                for j in range(nb):
-                for j in [0]:
-                    name_batch_index=names_order[j*batch_size:(j+1)*batch_size]
-                    r_batch = rv[name_batch_index]
-                    names_batch=ndm[name_batch_index]
-                    dv_batch=np.broadcast_to(dv,(batch_size,len(dv)))
-                    name_k_batch=np.broadcast_to(name_k,(batch_size,len(name_k)))
-                    X=np.concatenate((dv_batch,name_k_batch,names_batch),axis=1)
-                    c=cov[k,name_batch_index]
-                    Y=((rk*r_batch-c)/c).reshape((batch_size,1))
-                    yield X,Y
+
+                name_batch_index=names_order[j*batch_size:(j+1)*batch_size]
+                r_batch = rv[name_batch_index]
+                names_batch=ndm[name_batch_index]
+                dv_batch=np.broadcast_to(dv,(batch_size,len(dv)))
+                name_k_batch=np.broadcast_to(name_k,(batch_size,len(name_k)))
+                X=np.concatenate((dv_batch,name_k_batch,names_batch),axis=1)
+                c=cov[k,name_batch_index]
+                Y=((rk*r_batch-c)/c).reshape((batch_size,1))
+                print (Y.mean(),Y.std())
+                yield X,Y
+
+class DayNameNameIndexGenerator:
+    def index_generator(self,test=False):
+        days=store["Days_scaled"]
+        names=store["Names_scaled"]
+        if test:
+            day_order=len(days)-np.arange(self.test_days)-1-self.horizon
+        else:
+            day_order=np.arange(self.horizon,len(days)-self.test_days-2*self.horizon)
+
+        names_order1=np.arange(len(names))
+        names_order2=np.arange(len(names))
+        while True:            
+            np.random.shuffle(day_order)
+            np.random.shuffle(names_order1)
+            np.random.shuffle(names_order2)
+            for a,b,c in zip(day_order,names_order1,names_order2):
+                if b==c:
+                    continue
+                yield a,b,c
+                yield a,c,b
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            c_batch=[]
+            for i in range(self.batch_size):
+                a,b,c=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+                c_batch.append(c)
+            yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
+
+class Cov2(ModelBasis,SimpleModelArchitecture,DayNameNameIndexGenerator):
+    test_days=10
+    steps_per_epoch=100000
+    hidden_layers=2
+    horizon=10
+    def number_of_inputs(self):
+        days=len(store["Days_scaled"].columns)
+        names=len(store["Names_scaled"].columns)        
+        return days+names+names
+    def validation_steps(self):
+        return int(len(store["Names_scaled"].columns)*self.test_days/self.batch_size)
+
+    def generate(self,test=False):
+        store=self.store
+        batch_size=self.batch_size
+        returns=store["Returns_scaled"]
+        days=store["Days_scaled"]
+        names=store["Names_scaled"]
+
+
+        r=returns.as_matrix()
+        ddm=days.as_matrix()
+        ndm=names.as_matrix()
+        cov=store["Covariance"].as_matrix()
+        dcov=cov.diagonal()
+        dcovstd=dcov.std()
+        
+        ibg=self.index_batch_generator(test)
+        while True:
+            day_index, n1_index, n2_index = next(ibg)
+            d=ddm[day_index,:]
+            n1=ndm[n1_index,:]
+            n2=ndm[n2_index,:]
+            X=np.concatenate((d,n1,n2),axis=1)
+            Y=np.zeros(self.batch_size,np.float32)
+            for i in range(self.batch_size):
+                c=cov[n1_index[i],n2_index[i]]
+                begin=0#int(-self.horizon/4)
+                for j in range(begin,begin+self.horizon):
+                    Y[i]+=r[day_index[i]+j,n1_index[i]]*r[day_index[i]+j,n2_index[i]]
+                Y[i]=Y[i]/self.horizon
+
+            Y=Y.reshape((batch_size,1))
+            #print (Y.mean(),Y.std())
+            yield X,Y
 
 
 Process = eval(process)
 
 p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)
-    
+#for i,g in zip(range(10),p.generate()):
+#    pass
+#exit(0)
+
 p.fit(epochs)
 p.save_weights()
