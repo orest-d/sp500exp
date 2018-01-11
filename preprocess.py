@@ -878,8 +878,52 @@ def _rc(store,outputstore):
         df_scale.to_csv("x_scale.csv")
         output["%s_scaled"%name]        = df_scaled
         output["%s_scale"%name]         = df_scale
-    
 
+def _logrc(store,outputstore):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")    
+    returns=(close/close.shift(-1)).apply(np.log)
+    remove=returns.apply(np.isfinite).sum()<0.9*len(returns)
+    print("Remove:",returns.columns[remove],remove.sum())
+    returns.fillna(0,inplace=True)
+    returns[~returns.apply(np.isfinite)]=0
+    returns=returns[1:-1]
+    close=close[1:-1]
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+    
+    r=returns.as_matrix().T
+    cov=pd.DataFrame(columns=returns.columns,index=returns.columns)
+    for i,n in enumerate(returns.columns):
+        c=(r[i]*r).mean(axis=1)
+        cov.loc[n,:]=c
+    cov.to_csv("tmp.csv")
+    cov=pd.read_csv("tmp.csv",index_col=0)
+    outputstore["Covariance"]=cov
+    d=np.sqrt(cov.as_matrix().diagonal())
+    corr = cov/np.outer(d,d)
+    outputstore["Correlations"]=corr
+
+    for name,df in [("Close",close),("Returns",returns)]:
+        print("Df:"+name)
+        outputstore[name] = df
+
+        if scale.lower()=="yes":
+            print ("Scale "+name)
+            df_scale = scale_df(df)
+        else:
+            print ("Trivial Scale "+name)
+            df_scale = trivial_scale_df(df)
+
+        df_scaled                       = rescale_df(df,df_scale)
+        df_scale.to_csv("x_scale.csv")
+        output["%s_scaled"%name]        = df_scaled
+        output["%s_scale"%name]         = df_scale
+    
 store = pd.HDFStore(storefile)
 output = pd.HDFStore(outputfile)
 logging.info("Process "+process_function)

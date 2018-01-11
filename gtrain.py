@@ -6,9 +6,10 @@ from sklearn import preprocessing
 import argparse
 import sys
 from keras.models import Sequential
-from keras.layers import Dense, Activation
+from keras.layers import Dense, Activation, Input, concatenate
 from keras.models import model_from_yaml
 from keras import regularizers
+
 
 parser = argparse.ArgumentParser(description='Training.')
 parser.add_argument('-i','--input',            help='Inputfile .h5 (rc.h5)',default="rc.h5")
@@ -290,6 +291,77 @@ class Cov2(ModelBasis,SimpleModelArchitecture,DayNameNameIndexGenerator):
             Y=Y.reshape((batch_size,1))
             #print (Y.mean(),Y.std())
             yield X,Y
+
+
+class F1ModelArchitecture:
+    stock_history_length=100
+    def create_model(self):
+        logging.info("Create model "+self.name())
+        store=self.store
+        returns=store["Returns_scaled"]
+        market_size=len(returns.columns)
+
+        stock_L1=int(1.5*self.stock_history_length)
+        stock_Lf=20
+        market_L1=int(1.5*market_size)
+        market_Lf=40
+        regularization=self.regularization
+
+        stock_inputs=Input(shape=(self.stock_history_length,),name="stock_inputs")
+        x=Dense(name="stock_layer1",units=stock_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(stock_inputs)
+        x=Dense(name="stock_layer2",units=stock_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        stock_fingerprint=Dense(name="stock_fingerprint",units=stock_Lf, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+
+        market_inputs=Input(shape=(market_size,),name="market_inputs")
+        x=Dense(name="market_layer1",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(market_inputs)
+        x=Dense(name="market_layer2",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        market_fingerprint=Dense(name="market_fingerprint",units=market_Lf, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+
+        fingerprints = concatenate([stock_fingerprint,market_fingerprint])
+        x=Dense(name="combine_layer1",units=100, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(fingerprints)
+        x=Dense(name="combine_layer2",units=60, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        model = Model(inputs=[stock_inputs,market_inputs],outputs=output)
+        model.compile(optimizer='rmsprop',loss='mse')
+        modelfile = self.modelfile
+        logging.info("Save model to %s"%modelfile)
+        with open(modelfile,"w") as f:
+            f.write(model.to_yaml())
+        self.model = model
+        return self
+
+class DayNameF1IndexGenerator:
+    def index_generator(self,test=False):
+        H=self.stock_history_length+2
+        r=store["Returns_scaled"].as_matrix()
+        N,M=r.shape
+
+        if test:
+            day_order=N-np.arange(self.test_days)-H
+        else:
+            day_order=np.arange(N-self.test_days-2*H-1)
+
+        b=np.arange(M)
+        
+        while True:
+            np.random.shuffle(day_order)
+            for d in day_order:
+                a=d+np.arange(H)
+                o=np.concatenate((np.tile(a,len(b)),np.repeat(b,len(a)))).reshape((2,len(a)*len(b))).T                      
+                np.random.shuffle(o)
+                for x,y in o:
+                    yield x,y
+
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            for i in range(self.batch_size):
+                a,b=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+            yield np.array(a_batch),np.array(b_batch)
 
 
 Process = eval(process)
