@@ -6,7 +6,7 @@ from sklearn import preprocessing
 import argparse
 import sys
 from keras.models import Sequential,Model
-from keras.layers import Dense, Activation, Input, concatenate
+from keras.layers import Dense, Activation, Input, concatenate, BatchNormalization
 from keras.models import model_from_yaml
 from keras import regularizers
 
@@ -82,7 +82,7 @@ class ModelBasis:
         else:
             if exists(self.weightsfile):
                 logging.info("Load weights from %s"%self.weightsfile)
-                self.model.load_weights(self.weightsfile)
+                self.model.load_weights(self.weightsfile, by_name=True)
             else:
                 logging.info("New weigths %s"%self.weightsfile)
             
@@ -309,17 +309,26 @@ class F1ModelArchitecture:
 
         stock_inputs=Input(shape=(self.stock_history_length,),name="stock_inputs")
         x=Dense(name="stock_layer1",units=stock_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(stock_inputs)
+        x=BatchNormalization()(x)
         x=Dense(name="stock_layer2",units=stock_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        x=BatchNormalization()(x)
+        x=Dense(name="stock_layer3",units=stock_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         stock_fingerprint=Dense(name="stock_fingerprint",units=stock_Lf, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
 
         market_inputs=Input(shape=(market_size,),name="market_inputs")
         x=Dense(name="market_layer1",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(market_inputs)
+        x=BatchNormalization()(x)
         x=Dense(name="market_layer2",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        x=BatchNormalization()(x)
+        x=Dense(name="market_layer3",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         market_fingerprint=Dense(name="market_fingerprint",units=market_Lf, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
 
         fingerprints = concatenate([stock_fingerprint,market_fingerprint])
         x=Dense(name="combine_layer1",units=100, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(fingerprints)
+        x=BatchNormalization()(x)
         x=Dense(name="combine_layer2",units=60, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        x=BatchNormalization()(x)
+        x=Dense(name="combine_layer3",units=60, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         model = Model(inputs=[stock_inputs,market_inputs],outputs=output)
         model.compile(optimizer='rmsprop',loss='mse')
@@ -337,7 +346,7 @@ class DayDayNameF1IndexGenerator:
         N,M=r.shape
 
         if test:
-            day_order=N-np.arange(self.test_days)-H
+            day_order=N-np.arange(self.test_days)-H-2
         else:
             day_order=np.arange(N-self.test_days-2*H-1)
 
@@ -370,7 +379,7 @@ class DayDayNameF1IndexGenerator:
             yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
 class F1(ModelBasis,F1ModelArchitecture,DayDayNameF1IndexGenerator):
     test_days=10
-    steps_per_epoch=100000
+    steps_per_epoch=10000
     def validation_steps(self):
         return int(len(store["Returns_scaled"].columns)*self.test_days/self.batch_size*3)
 
