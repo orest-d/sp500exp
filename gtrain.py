@@ -5,7 +5,7 @@ from os.path import exists
 from sklearn import preprocessing
 import argparse
 import sys
-from keras.models import Sequential
+from keras.models import Sequential,Model
 from keras.layers import Dense, Activation, Input, concatenate
 from keras.models import model_from_yaml
 from keras import regularizers
@@ -330,7 +330,7 @@ class F1ModelArchitecture:
         self.model = model
         return self
 
-class DayNameF1IndexGenerator:
+class DayDayNameF1IndexGenerator:
     def index_generator(self,test=False):
         H=self.stock_history_length+2
         r=store["Returns_scaled"].as_matrix()
@@ -341,28 +341,60 @@ class DayNameF1IndexGenerator:
         else:
             day_order=np.arange(N-self.test_days-2*H-1)
 
-        b=np.arange(M)
+        stocks=np.arange(M)
         
         while True:
             np.random.shuffle(day_order)
-            for d in day_order:
-                a=d+np.arange(H)
-                o=np.concatenate((np.tile(a,len(b)),np.repeat(b,len(a)))).reshape((2,len(a)*len(b))).T                      
+            for period_start_day in day_order:
+                prediction_days=period_start_day+H-1+np.arange(3)
+                np.random.shuffle(stocks)
+                
+                pd_repeated=np.tile(prediction_days,M)
+                stocks_repeated=np.repeat(stocks,len(prediction_days))
+                o=np.concatenate((pd_repeated,stocks_repeated)).reshape((2,len(prediction_days)*len(stocks))).T
                 np.random.shuffle(o)
-                for x,y in o:
-                    yield x,y
+                for prediction_day,stock_number in o[:2]:
+                    yield period_start_day,prediction_day,stock_number
 
     def index_batch_generator(self,test=False):
         g=self.index_generator(test)
         while True:
             a_batch=[]
             b_batch=[]
+            c_batch=[]
             for i in range(self.batch_size):
-                a,b=next(g)
+                a,b,c=next(g)
                 a_batch.append(a)
                 b_batch.append(b)
-            yield np.array(a_batch),np.array(b_batch)
+                c_batch.append(c)
+            yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
+class F1(ModelBasis,F1ModelArchitecture,DayDayNameF1IndexGenerator):
+    test_days=10
+    steps_per_epoch=100000
+    def validation_steps(self):
+        return int(len(store["Returns_scaled"].columns)*self.test_days/self.batch_size*3)
 
+    def generate(self,test=False):
+        store=self.store
+        batch_size=self.batch_size
+        H=self.stock_history_length
+        r=store["Returns_scaled"].as_matrix()
+        N,M=r.shape
+
+        ibg = self.index_batch_generator(test)
+        while True:
+            batch_period_start_day,batch_prediction_day,batch_stock_number = next(ibg)
+            X1=np.zeros((batch_size,H),np.float32)
+            X2=np.zeros((batch_size,M),np.float32)
+            Y=np.zeros((batch_size,1),np.float32)
+            for i in range(self.batch_size):
+                period_start_day=batch_period_start_day[i]
+                prediction_day=batch_prediction_day[i]
+                stock_number=batch_stock_number[i]
+                X1[i,:]=r[period_start_day:period_start_day+H,stock_number]
+                X2[i,:]=r[prediction_day,:]
+                Y[i,0]=r[prediction_day,stock_number]
+            yield [X1,X2],Y
 
 Process = eval(process)
 
@@ -370,6 +402,6 @@ p=Process(store, regularization=regularization,batch_size=batch, modelfile=model
 #for i,g in zip(range(10),p.generate()):
 #    pass
 #exit(0)
-
+#print (next(p.index_batch_generator()))
 p.fit(epochs)
 p.save_weights()
