@@ -6,7 +6,7 @@ from sklearn import preprocessing
 import argparse
 import sys
 from keras.models import Sequential,Model
-from keras.layers import Dense, Activation, Input, concatenate, BatchNormalization
+from keras.layers import Dense, Activation, Input, concatenate, BatchNormalization, multiply
 from keras.models import model_from_yaml
 from keras import regularizers
 
@@ -304,7 +304,7 @@ class F1ModelArchitecture:
         stock_L1=int(1.5*self.stock_history_length)
         stock_Lf=20
         market_L1=int(1.5*market_size)
-        market_Lf=40
+        market_Lf=stock_Lf
         regularization=self.regularization
 
         stock_inputs=Input(shape=(self.stock_history_length,),name="stock_inputs")
@@ -317,17 +317,18 @@ class F1ModelArchitecture:
 
         market_inputs=Input(shape=(market_size,),name="market_inputs")
         x=Dense(name="market_layer1",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(market_inputs)
-        x=BatchNormalization()(x)
+        #x=BatchNormalization()(x)
         x=Dense(name="market_layer2",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
-        x=BatchNormalization()(x)
+        #x=BatchNormalization()(x)
         x=Dense(name="market_layer3",units=market_L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         market_fingerprint=Dense(name="market_fingerprint",units=market_Lf, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
 
-        fingerprints = concatenate([stock_fingerprint,market_fingerprint])
+        mul=multiply([stock_fingerprint,market_fingerprint])
+        fingerprints = concatenate([stock_fingerprint,market_fingerprint,mul])
         x=Dense(name="combine_layer1",units=100, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(fingerprints)
-        x=BatchNormalization()(x)
+        #x=BatchNormalization()(x)
         x=Dense(name="combine_layer2",units=60, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
-        x=BatchNormalization()(x)
+        #x=BatchNormalization()(x)
         x=Dense(name="combine_layer3",units=60, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         model = Model(inputs=[stock_inputs,market_inputs],outputs=output)
