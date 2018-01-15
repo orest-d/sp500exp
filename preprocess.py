@@ -923,6 +923,83 @@ def _logrc(store,outputstore):
         df_scale.to_csv("x_scale.csv")
         output["%s_scaled"%name]        = df_scaled
         output["%s_scale"%name]         = df_scale
+
+def _logrc1(store,outputstore,H=600):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")    
+    returns=(close/close.shift(-1)).apply(np.log)
+    H = (H+len(returns)-2)%(len(returns)-2)
+
+    remove=returns.apply(np.isfinite).sum()<0.9*len(returns)
+    print("Remove (less than 90% data in total):",returns.columns[remove],remove.sum())
+    logging.warning("Remove (less than 90% data in total):"+str(returns.columns[remove])+" "+str(remove.sum()))
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+
+    remove=returns.apply(np.isfinite)[:H].sum()<0.9*H
+    logging.warning("Remove (less than 90% data in covariance period):"+str(returns.columns[remove])+" "+str(remove.sum()))
+    print("Remove (less than 90% data in the covariance period) :",returns.columns[remove],remove.sum())
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+
+    returns.fillna(0,inplace=True)
+    returns[~returns.apply(np.isfinite)]=0
+    returns=returns[1:-1]
+    close=close[1:-1]
+
+
+    r=returns.as_matrix().T
+    logging.info("Returns shape (full):"+str(r.shape))
+    r=returns.as_matrix()[:H].T
+    logging.info("Returns shape (covariance period):"+str(r.shape))
+
+
+    cov=pd.DataFrame(columns=returns.columns,index=returns.columns)
+    for i,n in enumerate(returns.columns):
+        c=(r[i]*r).mean(axis=1)
+        cov.loc[n,:]=c
+    C=np.array(cov.as_matrix(),dtype=np.double)
+    eigenvalues,eigenvectors=np.linalg.eigh(C)
+    eigenvalues=np.flip(eigenvalues,0)
+    eigenvectors=eigenvectors.T
+    eigenvectors=np.flip(eigenvectors,0)
+    eigen_df=pd.DataFrame(np.hstack((eigenvalues.reshape((-1,1)),eigenvectors)),columns=["Eigenvalue"]+list(cov.columns))
+    cov.to_csv("tmp.csv")
+    cov=pd.read_csv("tmp.csv",index_col=0)
+    outputstore["Covariance"]=cov
+    d=np.sqrt(cov.as_matrix().diagonal())
+    corr = cov/np.outer(d,d)
+    outputstore["Correlations"]=corr
+    outputstore["Eigenvectors"]=eigen_df
+
+    r=r.T
+    with open("dim_std.csv","w") as f:
+        f.write("i;std;eigenvalue\n")
+        for i in range(1,len(eigenvectors)):
+            O=eigenvectors[:i].T
+            y=np.dot(r,O)
+            x=np.dot(y,O.T)
+            f.write("%3d;%+10.8f;%+12.8f\n"%(i,(r-x).std(),eigenvalues[i-1]))
+
+    for name,df in [("Close",close),("Returns",returns)]:
+        print("Df:"+name)
+        outputstore[name] = df
+
+        if scale.lower()=="yes":
+            print ("Scale "+name)
+            df_scale = scale_df(df)
+        else:
+            print ("Trivial Scale "+name)
+            df_scale = trivial_scale_df(df)
+
+        df_scaled                       = rescale_df(df,df_scale)
+        df_scale.to_csv("x_scale.csv")
+        output["%s_scaled"%name]        = df_scaled
+        output["%s_scale"%name]         = df_scale
     
 store = pd.HDFStore(storefile)
 output = pd.HDFStore(outputfile)
@@ -930,7 +1007,12 @@ logging.info("Process "+process_function)
 process = eval(process_function)
 
 if process_function[0]=="_":
-    process(store,output)
+    r=process(store,output)
+    if r is not None:
+        X,Y=r
+        logging.info("Output "+process_function)
+        make_output(output,X,Y,test,scale)
+        
 else:
     X,Y=process(store)
     logging.info("Output "+process_function)
