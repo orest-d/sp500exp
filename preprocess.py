@@ -924,7 +924,7 @@ def _logrc(store,outputstore):
         output["%s_scaled"%name]        = df_scaled
         output["%s_scale"%name]         = df_scale
 
-def _logrc1(store,outputstore,H=600):
+def _logrc1(store,outputstore,H=600,N=30):
     print("close")
     close=store["Close"].copy()
     close.fillna(method="ffill",inplace=True)
@@ -952,8 +952,8 @@ def _logrc1(store,outputstore,H=600):
     close=close[1:-1]
 
 
-    r=returns.as_matrix().T
-    logging.info("Returns shape (full):"+str(r.shape))
+    full_r=returns.as_matrix()
+    logging.info("Returns shape (full):"+str(full_r.shape))
     r=returns.as_matrix()[:H].T
     logging.info("Returns shape (covariance period):"+str(r.shape))
 
@@ -978,12 +978,23 @@ def _logrc1(store,outputstore,H=600):
 
     r=r.T
     with open("dim_std.csv","w") as f:
-        f.write("i;std;eigenvalue\n")
+        f.write("i;std;std_fulll;eigenvalue\n")
         for i in range(1,len(eigenvectors)):
             O=eigenvectors[:i].T
             y=np.dot(r,O)
             x=np.dot(y,O.T)
-            f.write("%3d;%+10.8f;%+12.8f\n"%(i,(r-x).std(),eigenvalues[i-1]))
+            full_y=np.dot(full_r,O)
+            full_x=np.dot(full_y,O.T)
+            f.write("%3d;%+10.8f;%+10.8f;%+12.8f\n"%(i,(r-x).std(),(full_r-full_x).std(),eigenvalues[i-1]))
+
+    O=eigenvectors[:N].T
+    #inv_sqrt_L=np.diag(np.power(eigenvalues[:N],-0.5))
+    #D=np.dot(O,inv_sqrt_L)
+    y=np.dot(full_r,O)
+    creturns_df = pd.DataFrame(y,index=returns.index,columns=["m%02d"%(i) for i in range(y.shape[1])])
+    outputstore["CompressedReturns"]=creturns_df
+    stock_df = pd.DataFrame(O.T,index=["o%02d"%(i) for i in range(N)],columns=returns.columns)
+    outputstore["StockProjections"]=stock_df
 
     for name,df in [("Close",close),("Returns",returns)]:
         print("Df:"+name)
