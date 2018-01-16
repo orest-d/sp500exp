@@ -50,10 +50,14 @@ if not exists(storefile):
         store[column]=df
     store.close()
 
-def scale_df(df):
-    scale = pd.DataFrame(data=[dict(df.mean()),dict(df.std())],columns=df.columns,index=["mean","std"])
+def scale_df(df,subtract_mean=True):
+    scale = pd.DataFrame(data=[dict(df.mean()),dict(df.std()),dict(df.mean())],columns=df.columns,index=["mean","std","true_mean"])
+    if not subtract_mean:
+        scale.loc["mean",:]=0
+        
     scale.loc["mean"].fillna(0,inplace=True)
     scale.loc["std"].fillna(1,inplace=True)
+    scale.loc["true_mean"].fillna(0,inplace=True)
     v=scale.loc["std"].as_matrix()
     v[v==0]=1
     scale.loc["std"]=v
@@ -924,7 +928,7 @@ def _logrc(store,outputstore):
         output["%s_scaled"%name]        = df_scaled
         output["%s_scale"%name]         = df_scale
 
-def _logrc1(store,outputstore,H=600,N=100):
+def _logrc1(store,outputstore,H=600,N=200):
     print("close")
     close=store["Close"].copy()
     close.fillna(method="ffill",inplace=True)
@@ -997,18 +1001,18 @@ def _logrc1(store,outputstore,H=600,N=100):
     creturns_df = pd.DataFrame(y,index=returns.index,columns=["m%02d"%(i) for i in range(y.shape[1])])
     stock_df = pd.DataFrame(O,columns=["o%02d"%(i) for i in range(N)],index=returns.columns)
 
-    for name,df in [
-        ("Close",close),
-        ("Returns",returns),
-        ("CompressedReturns",creturns_df),
-        ("StockProjections",stock_df)
+    for name,df,subtract_mean in [
+        ("Close",close,True),
+        ("Returns",returns,False),
+        ("CompressedReturns",creturns_df,False),
+        ("StockProjections",stock_df,False)
         ]:
         print("Df:   "+name)
         outputstore[name] = df
 
         if scale.lower()=="yes":
             print ("Scale "+name)
-            df_scale = scale_df(df)
+            df_scale = scale_df(df,subtract_mean=subtract_mean)
         else:
             print ("Trivial Scale "+name)
             df_scale = trivial_scale_df(df)

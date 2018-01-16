@@ -410,7 +410,7 @@ class F1(ModelBasis,F1ModelArchitecture,DayDayNameF1IndexGenerator):
 
 
 class RE1ModelArchitecture:
-    E=50
+    E=150
     def create_model(self):
         E=self.E
         logging.info("Create model %s (%d)"%(self.name(),E))
@@ -428,6 +428,31 @@ class RE1ModelArchitecture:
         x=Dense(name="layer1",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(fingerprint)
         x=Dense(name="layer2",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         x=Dense(name="layer3",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        model = Model(inputs=[stock_projection_inputs,compressed_returns_inputs],outputs=output)
+        model.compile(optimizer='rmsprop',loss='mse')
+        modelfile = self.modelfile
+        logging.info("Save model to %s"%modelfile)
+        with open(modelfile,"w") as f:
+            f.write(model.to_yaml())
+        self.model = model
+        return self
+
+class RE0ModelArchitecture:
+    E=200
+    def create_model(self):
+        E=self.E
+        logging.info("Create model %s (%d)"%(self.name(),E))
+        store=self.store
+        returns=store["Returns_scaled"]
+
+        L=int(1.5*3*E)
+        regularization=self.regularization
+
+        stock_projection_inputs=Input(shape=(E,),name="stock_projection_inputs")
+        compressed_returns_inputs=Input(shape=(E,),name="compressed_returns_inputs")
+        mul=multiply([stock_projection_inputs, compressed_returns_inputs])
+        x = concatenate([stock_projection_inputs,compressed_returns_inputs,mul])
         output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         model = Model(inputs=[stock_projection_inputs,compressed_returns_inputs],outputs=output)
         model.compile(optimizer='rmsprop',loss='mse')
@@ -480,7 +505,7 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
         E=self.E
         store=self.store
         batch_size=self.batch_size
-        r=store["Returns_scaled"].as_matrix()
+        r=store["Returns"].as_matrix()
         cr=store["CompressedReturns_scaled"].as_matrix()[:,:E]
         sp=store["StockProjections_scaled"].as_matrix()[:,:E]
         N,M=r.shape
@@ -492,9 +517,74 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
             X2=cr[batch_day]
             Y=np.zeros((batch_size,1),np.float32)
             for i in range(batch_size):
-                Y[i,0]=r[batch_day[i],batch_stock_number[i]]
+                Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
             yield [X1,X2],Y
+    def test1(self):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
 
+        batch_day=np.arange(128)
+        batch_stock_number= np.zeros(128,np.int)
+        batch_stock_number[:]=1
+        X1=sp[batch_stock_number]
+        X2=cr[batch_day]
+        Y=np.zeros((batch_size,1),np.float32)
+        for i in range(batch_size):
+            Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+        Yp=self.model.predict([X1,X2], batch_size=batch_size)
+        for y,yp in zip(Y,Yp):
+            print(y[0],yp[0])
+
+class RE0(ModelBasis,RE0ModelArchitecture,DayNameIndexGenerator):
+    test_days=10
+    steps_per_epoch=10000
+    def validation_steps(self):
+        return int(len(store["Returns_scaled"].columns)*self.test_days/self.batch_size)
+
+    def generate(self,test=False):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+
+        ibg = self.index_batch_generator(test)
+        while True:
+            batch_day,batch_stock_number = next(ibg)
+            X1=sp[batch_stock_number]
+            X2=cr[batch_day]
+            Y=np.zeros((batch_size,1),np.float32)
+            for i in range(batch_size):
+                Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+            yield [X1,X2],Y
+    def test1(self):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+
+        batch_day=np.arange(128)
+        batch_stock_number= np.zeros(128,np.int)
+        batch_stock_number[:]=1
+
+        X1=sp[batch_stock_number]
+        X2=cr[batch_day]
+        Y=np.zeros((batch_size,1),np.float32)
+        for i in range(batch_size):
+            Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+        Yp=self.model.predict([X1,X2], batch_size=batch_size)
+        for y,yp in zip(Y,Yp):
+            print(y[0],yp[0])
 Process = eval(process)
 
 p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)
@@ -504,3 +594,6 @@ p=Process(store, regularization=regularization,batch_size=batch, modelfile=model
 #print (next(p.index_batch_generator()))
 p.fit(epochs)
 p.save_weights()
+
+p.test1()
+
