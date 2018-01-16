@@ -425,7 +425,7 @@ class RE1ModelArchitecture:
         mul=multiply([stock_projection_inputs, compressed_returns_inputs])
         fingerprint = concatenate([stock_projection_inputs,compressed_returns_inputs,mul])
 
-        x=Dense(name="layer1",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(stock_inputs)
+        x=Dense(name="layer1",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(fingerprint)
         x=Dense(name="layer2",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         x=Dense(name="layer3",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
         output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
@@ -480,7 +480,6 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
         E=self.E
         store=self.store
         batch_size=self.batch_size
-        H=self.stock_history_length
         r=store["Returns_scaled"].as_matrix()
         cr=store["CompressedReturns_scaled"].as_matrix()[:,:E]
         sp=store["StockProjections_scaled"].as_matrix()[:,:E]
@@ -491,7 +490,9 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
             batch_day,batch_stock_number = next(ibg)
             X1=sp[batch_stock_number]
             X2=cr[batch_day]
-            Y=r[batch_day]
+            Y=np.zeros((batch_size,1),np.float32)
+            for i in range(batch_size):
+                Y[i,0]=r[batch_day[i],batch_stock_number[i]]
             yield [X1,X2],Y
 
 Process = eval(process)
