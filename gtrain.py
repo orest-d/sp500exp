@@ -406,6 +406,94 @@ class F1(ModelBasis,F1ModelArchitecture,DayDayNameF1IndexGenerator):
                 Y[i,0]=r[prediction_day,stock_number]
             yield [X1,X2],Y
 
+
+
+
+class RE1ModelArchitecture:
+    E=50
+    def create_model(self):
+        E=self.E
+        logging.info("Create model %s (%d)"%(self.name(),E))
+        store=self.store
+        returns=store["Returns_scaled"]
+
+        L=int(1.5*3*E)
+        regularization=self.regularization
+
+        stock_projection_inputs=Input(shape=(E,),name="stock_projection_inputs")
+        compressed_returns_inputs=Input(shape=(E,),name="compressed_returns_inputs")
+        mul=multiply([stock_projection_inputs, compressed_returns_inputs])
+        fingerprint = concatenate([stock_projection_inputs,compressed_returns_inputs,mul])
+
+        x=Dense(name="layer1",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(stock_inputs)
+        x=Dense(name="layer2",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        x=Dense(name="layer3",units=L, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        model = Model(inputs=[stock_projection_inputs,compressed_returns_inputs],outputs=output)
+        model.compile(optimizer='rmsprop',loss='mse')
+        modelfile = self.modelfile
+        logging.info("Save model to %s"%modelfile)
+        with open(modelfile,"w") as f:
+            f.write(model.to_yaml())
+        self.model = model
+        return self
+
+class DayNameIndexGenerator:
+    def index_generator(self,test=False):
+        r=store["Returns_scaled"].as_matrix()
+        N,M=r.shape
+
+        if test:
+            day_order=N-np.arange(self.test_days)-1
+        else:
+            day_order=np.arange(N-self.test_days-2)
+        N=len(day_order)
+
+        stocks=np.arange(M)
+        days_repeated=np.tile(day_order,M)
+        stocks_repeated=np.repeat(stocks,N)
+        o=np.concatenate((days_repeated,stocks_repeated)).reshape((2,-1)).T
+        
+        while True:
+            np.random.shuffle(o)
+            for x,y in o:
+                yield x,y
+
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            for i in range(self.batch_size):
+                a,b=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+            yield np.array(a_batch),np.array(b_batch)
+
+class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
+    test_days=10
+    steps_per_epoch=10000
+    def validation_steps(self):
+        return int(len(store["Returns_scaled"].columns)*self.test_days/self.batch_size)
+
+    def generate(self,test=False):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        H=self.stock_history_length
+        r=store["Returns_scaled"].as_matrix()
+        cr=store["CompressedReturns_scaled"].as_matrix()[:,:E]
+        sp=store["StockProjections_scaled"].as_matrix()[:,:E]
+        N,M=r.shape
+
+        ibg = self.index_batch_generator(test)
+        while True:
+            batch_day,batch_stock_number = next(ibg)
+            X1=sp[batch_stock_number]
+            X2=cr[batch_day]
+            Y=r[batch_day]
+            yield [X1,X2],Y
+
 Process = eval(process)
 
 p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)

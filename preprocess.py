@@ -924,7 +924,7 @@ def _logrc(store,outputstore):
         output["%s_scaled"%name]        = df_scaled
         output["%s_scale"%name]         = df_scale
 
-def _logrc1(store,outputstore,H=600,N=30):
+def _logrc1(store,outputstore,H=600,N=100):
     print("close")
     close=store["Close"].copy()
     close.fillna(method="ffill",inplace=True)
@@ -978,26 +978,32 @@ def _logrc1(store,outputstore,H=600,N=30):
 
     r=r.T
     with open("dim_std.csv","w") as f:
-        f.write("i;std;std_fulll;eigenvalue\n")
+        f.write("i;std;std_full;dC;maxrelC;eigenvalue\n")
         for i in range(1,len(eigenvectors)):
             O=eigenvectors[:i].T
             y=np.dot(r,O)
             x=np.dot(y,O.T)
+            C1=np.dot(O,np.dot(np.diag(eigenvalues[:i]),O.T))
+            dC=(C-C1).std()
+            maxrelC=np.max(np.abs((C-C1)/C))
             full_y=np.dot(full_r,O)
             full_x=np.dot(full_y,O.T)
-            f.write("%3d;%+10.8f;%+10.8f;%+12.8f\n"%(i,(r-x).std(),(full_r-full_x).std(),eigenvalues[i-1]))
+            f.write("%3d;%+10.8f;%+10.8f;%+10.8f;%+10.8f;%+12.8f\n"%(i,(r-x).std(),(full_r-full_x).std(),dC,maxrelC,eigenvalues[i-1]))
 
     O=eigenvectors[:N].T
     #inv_sqrt_L=np.diag(np.power(eigenvalues[:N],-0.5))
     #D=np.dot(O,inv_sqrt_L)
     y=np.dot(full_r,O)
     creturns_df = pd.DataFrame(y,index=returns.index,columns=["m%02d"%(i) for i in range(y.shape[1])])
-    outputstore["CompressedReturns"]=creturns_df
-    stock_df = pd.DataFrame(O.T,index=["o%02d"%(i) for i in range(N)],columns=returns.columns)
-    outputstore["StockProjections"]=stock_df
+    stock_df = pd.DataFrame(O,columns=["o%02d"%(i) for i in range(N)],index=returns.columns)
 
-    for name,df in [("Close",close),("Returns",returns)]:
-        print("Df:"+name)
+    for name,df in [
+        ("Close",close),
+        ("Returns",returns),
+        ("CompressedReturns",creturns_df),
+        ("StockProjections",stock_df)
+        ]:
+        print("Df:   "+name)
         outputstore[name] = df
 
         if scale.lower()=="yes":
