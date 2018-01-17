@@ -998,13 +998,16 @@ def _logrc1(store,outputstore,H=600,N=200):
     #inv_sqrt_L=np.diag(np.power(eigenvalues[:N],-0.5))
     #D=np.dot(O,inv_sqrt_L)
     y=np.dot(full_r,O)
+    pr = np.dot(y,O.T)
     creturns_df = pd.DataFrame(y,index=returns.index,columns=["m%02d"%(i) for i in range(y.shape[1])])
+    projected_returns_df = pd.DataFrame(pr,index=returns.index,columns=returns.columns)
     stock_df = pd.DataFrame(O,columns=["o%02d"%(i) for i in range(N)],index=returns.columns)
 
     for name,df,subtract_mean in [
         ("Close",close,True),
         ("Returns",returns,False),
         ("CompressedReturns",creturns_df,False),
+        ("ProjectedReturns",projected_returns_df,False),
         ("StockProjections",stock_df,False)
         ]:
         print("Df:   "+name)

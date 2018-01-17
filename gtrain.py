@@ -6,7 +6,7 @@ from sklearn import preprocessing
 import argparse
 import sys
 from keras.models import Sequential,Model
-from keras.layers import Dense, Activation, Input, concatenate, BatchNormalization, multiply
+from keras.layers import Dense, Activation, Input, concatenate, BatchNormalization, multiply,dot
 from keras.models import model_from_yaml
 from keras import regularizers
 
@@ -451,9 +451,12 @@ class RE0ModelArchitecture:
 
         stock_projection_inputs=Input(shape=(E,),name="stock_projection_inputs")
         compressed_returns_inputs=Input(shape=(E,),name="compressed_returns_inputs")
-        mul=multiply([stock_projection_inputs, compressed_returns_inputs])
-        x = concatenate([stock_projection_inputs,compressed_returns_inputs,mul])
+#        mul=multiply([stock_projection_inputs, compressed_returns_inputs])
+        x=multiply([stock_projection_inputs, compressed_returns_inputs])
+        #x=dot([stock_projection_inputs, compressed_returns_inputs],axes=1)
+#        x = concatenate([stock_projection_inputs,compressed_returns_inputs,mul])
         output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+#        output=dot
         model = Model(inputs=[stock_projection_inputs,compressed_returns_inputs],outputs=output)
         model.compile(optimizer='rmsprop',loss='mse')
         modelfile = self.modelfile
@@ -506,8 +509,8 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
         store=self.store
         batch_size=self.batch_size
         r=store["Returns"].as_matrix()
-        cr=store["CompressedReturns_scaled"].as_matrix()[:,:E]
-        sp=store["StockProjections_scaled"].as_matrix()[:,:E]
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
         N,M=r.shape
 
         ibg = self.index_batch_generator(test)
@@ -517,7 +520,7 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
             X2=cr[batch_day]
             Y=np.zeros((batch_size,1),np.float32)
             for i in range(batch_size):
-                Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+                Y[i,0]=10*r[batch_day[i],batch_stock_number[i]]
             yield [X1,X2],Y
     def test1(self):
         E=self.E
@@ -535,7 +538,7 @@ class RE1(ModelBasis,RE1ModelArchitecture,DayNameIndexGenerator):
         X2=cr[batch_day]
         Y=np.zeros((batch_size,1),np.float32)
         for i in range(batch_size):
-            Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+            Y[i,0]=10*r[batch_day[i],batch_stock_number[i]]
         Yp=self.model.predict([X1,X2], batch_size=batch_size)
         for y,yp in zip(Y,Yp):
             print(y[0],yp[0])
@@ -550,7 +553,7 @@ class RE0(ModelBasis,RE0ModelArchitecture,DayNameIndexGenerator):
         E=self.E
         store=self.store
         batch_size=self.batch_size
-        r=store["Returns"].as_matrix()
+        r=store["ProjectedReturns"].as_matrix()
         cr=store["CompressedReturns"].as_matrix()[:,:E]
         sp=store["StockProjections"].as_matrix()[:,:E]
         N,M=r.shape
@@ -562,13 +565,13 @@ class RE0(ModelBasis,RE0ModelArchitecture,DayNameIndexGenerator):
             X2=cr[batch_day]
             Y=np.zeros((batch_size,1),np.float32)
             for i in range(batch_size):
-                Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+                Y[i,0]=10*r[batch_day[i],batch_stock_number[i]]
             yield [X1,X2],Y
     def test1(self):
         E=self.E
         store=self.store
         batch_size=self.batch_size
-        r=store["Returns"].as_matrix()
+        r=store["ProjectedReturns"].as_matrix()
         cr=store["CompressedReturns"].as_matrix()[:,:E]
         sp=store["StockProjections"].as_matrix()[:,:E]
         N,M=r.shape
@@ -581,7 +584,7 @@ class RE0(ModelBasis,RE0ModelArchitecture,DayNameIndexGenerator):
         X2=cr[batch_day]
         Y=np.zeros((batch_size,1),np.float32)
         for i in range(batch_size):
-            Y[i,0]=100*r[batch_day[i],batch_stock_number[i]]
+            Y[i,0]=10*r[batch_day[i],batch_stock_number[i]]
         Yp=self.model.predict([X1,X2], batch_size=batch_size)
         for y,yp in zip(Y,Yp):
             print(y[0],yp[0])
