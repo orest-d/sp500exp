@@ -410,7 +410,7 @@ class F1(ModelBasis,F1ModelArchitecture,DayDayNameF1IndexGenerator):
 
 
 class RE1ModelArchitecture:
-    E=150
+    E=200
     def create_model(self):
         E=self.E
         logging.info("Create model %s (%d)"%(self.name(),E))
@@ -437,6 +437,87 @@ class RE1ModelArchitecture:
             f.write(model.to_yaml())
         self.model = model
         return self
+
+class CovE1ModelArchitecture:
+    E=200
+    def create_model(self):
+        E=self.E
+        logging.info("Create model %s (%d)"%(self.name(),E))
+        store=self.store
+        returns=store["Returns_scaled"]
+
+        L=50
+        regularization=self.regularization
+
+        stockA_projection_inputs=Input(shape=(E,),name="stockA_projection_inputs")
+        stockB_projection_inputs=Input(shape=(E,),name="stockB_projection_inputs")
+        compressed_returns_inputs=Input(shape=(E,),name="compressed_returns_inputs")
+        mulA=multiply([stockA_projection_inputs, compressed_returns_inputs])
+        pseudo_returnsA=Dense(name="pseudo_returnsA",units=L, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(mulA)
+        mulB=multiply([stockB_projection_inputs, compressed_returns_inputs])
+        pseudo_returnsB=Dense(name="pseudo_returnsB",units=L, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(mulB)
+        mulAB=multiply([pseudo_returnsA,pseudo_returnsB])
+        
+        fingerprint = concatenate([
+            stockA_projection_inputs,
+            stockB_projection_inputs,
+            compressed_returns_inputs,
+            mulA,
+            mulB,
+            mulAB
+            ])
+
+        x=Dense(name="layer1",units=6*E, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(fingerprint)
+        x=Dense(name="layer2",units=3*E, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        x=Dense(name="layer3",units=1*E, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        output=Dense(units=1, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(x)
+        model = Model(inputs=[stockA_projection_inputs,stockB_projection_inputs,compressed_returns_inputs],outputs=output)
+        model.compile(optimizer='rmsprop',loss='mse')
+        modelfile = self.modelfile
+        logging.info("Save model to %s"%modelfile)
+        with open(modelfile,"w") as f:
+            f.write(model.to_yaml())
+        self.model = model
+        return self
+
+class DayNameNameIndexGenerator2:
+    def index_generator(self,test=False):
+        r=store["Returns"]
+        Nd=len(r.index)
+        Ns=len(r.columns)
+        test_days=self.test_days
+        horizon=self.horizon
+        if test:
+            day_order=np.arange(Nd-test_days-horizon,Nd-horizon-1)
+        else:
+            day_order=np.arange(Nd-horizon-test_days-horizon-1)
+
+        names_order1=np.arange(Ns)
+        names_order2=np.arange(Ns)
+        while True:            
+            np.random.shuffle(day_order)
+            np.random.shuffle(names_order1)
+            np.random.shuffle(names_order2)
+            for a,b,c in zip(day_order,names_order1,names_order2):
+                if b==c:
+                    yield a,b,c
+                else:
+                    yield a,b,c
+                    yield a,c,b
+                    yield a,b,b
+                    yield a,c,c
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            c_batch=[]
+            for i in range(self.batch_size):
+                a,b,c=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+                c_batch.append(c)
+            yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
 
 class RE0ModelArchitecture:
     E=200
@@ -588,6 +669,39 @@ class RE0(ModelBasis,RE0ModelArchitecture,DayNameIndexGenerator):
         Yp=self.model.predict([X1,X2], batch_size=batch_size)
         for y,yp in zip(Y,Yp):
             print(y[0],yp[0])
+
+class CovE1(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2):
+    test_days=10
+    steps_per_epoch=10000
+    horizon=10
+    def validation_steps(self):
+        Ns=len(store["Returns"].columns)
+        return int(Ns*Ns*self.test_days/self.batch_size)
+
+    def generate(self,test=False):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+        horizon=self.horizon
+        ibg = self.index_batch_generator(test)
+        while True:
+            batch_day, batch_stockA_number, batch_stockB_number = next(ibg)
+            X1=sp[batch_stockA_number]
+            X2=sp[batch_stockB_number]
+            X3=cr[batch_day]
+            Y=np.zeros((batch_size,1),np.float32)
+            for i in range(batch_size):
+                rA=10*r[batch_day[i]:batch_day[i]+horizon,batch_stockA_number[i]]
+                rB=10*r[batch_day[i]:batch_day[i]+horizon,batch_stockB_number[i]]
+                Y[i,0]=np.average(rA*rB)
+            yield [X1,X2,X3],Y
+    def test1(self):
+        pass
+
 Process = eval(process)
 
 p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)
