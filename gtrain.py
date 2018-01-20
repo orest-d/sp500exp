@@ -519,6 +519,87 @@ class DayNameNameIndexGenerator2:
                 c_batch.append(c)
             yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
 
+class DayNameNameIndexGenerator2a:
+    def index_generator(self,test=False):
+        r=store["Returns"]
+        Nd=len(r.index)
+        Ns=len(r.columns)
+        test_days=self.test_days
+        horizon=self.horizon
+        if test:
+            day_order=np.arange(Nd-test_days-horizon,Nd-horizon-1)
+        else:
+            day_order=np.arange(Nd-horizon-test_days-horizon-1)
+
+        names_order1=np.arange(Ns)
+        names_order2=np.arange(Ns)
+        while True:            
+            np.random.shuffle(day_order)
+            np.random.shuffle(names_order1)
+            np.random.shuffle(names_order2)
+            for a,b,c in zip(day_order,names_order1,names_order2):
+                if b==c:
+                    yield a,b,c
+                    if a>0:
+                        yield a-1,b,c
+                else:
+                    yield a,b,c
+                    yield a,c,b
+                    yield a,b,b
+                    yield a,c,c
+                    if a>0:
+                        yield a-1,b,c
+                        yield a-1,c,b
+                        yield a-1,b,b
+                        yield a-1,c,c
+                        
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            c_batch=[]
+            for i in range(self.batch_size):
+                a,b,c=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+                c_batch.append(c)
+            yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
+
+class DayNameNameIndexGenerator2Sel:
+    def index_generator(self,test=False):
+        r=store["Returns"]
+        selection_index=[list(r.columns).index(x) for x in self.selection]
+        Nd=len(r.index)
+        Ns=len(r.columns)
+        test_days=self.test_days
+        horizon=self.horizon
+        if test:
+            day_order=np.arange(Nd-test_days-horizon,Nd-horizon-1)
+        else:
+            day_order=np.arange(Nd-horizon-test_days-horizon-1)
+
+        names_order=np.array(selection_index)
+        while True:            
+            np.random.shuffle(day_order)
+            for a in day_order:
+                for b in names_order:
+                    for c in names_order:
+                        yield a,b,c
+                         
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            c_batch=[]
+            for i in range(self.batch_size):
+                a,b,c=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+                c_batch.append(c)
+            yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
+
 class RE0ModelArchitecture:
     E=200
     def create_model(self):
@@ -670,11 +751,12 @@ class RE0(ModelBasis,RE0ModelArchitecture,DayNameIndexGenerator):
         for y,yp in zip(Y,Yp):
             print(y[0],yp[0])
 
-class CovE1(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2):
+class CovE1Generator:
     test_days=10
     steps_per_epoch=10000
     horizon=10
     def validation_steps(self):
+        return 500
         Ns=len(store["Returns"].columns)
         return int(Ns*Ns*self.test_days/self.batch_size)
 
@@ -701,6 +783,35 @@ class CovE1(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2):
             yield [X1,X2,X3],Y
     def test1(self):
         pass
+
+class CovE1(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2a,CovE1Generator):
+    test_days=10
+    steps_per_epoch=10000
+    horizon=10
+
+class CovE1Sel(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1Generator):
+    test_days=10
+    horizon=10
+    selection=["GOOGL","AAPL","NFLX","INTC"]
+    steps_per_epoch=1024*len(selection)*len(selection)/256
+
+class CovE1SelTMK(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1Generator):
+    test_days=10
+    horizon=10
+    selection=["GOOGL","AAPL","NFLX","INTC","TMK"]
+    steps_per_epoch=1024*len(selection)*len(selection)/256
+
+class CovE1SelIBM(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1Generator):
+    test_days=10
+    horizon=10
+    selection=["GOOGL","AAPL","NFLX","INTC","IBM"]
+    steps_per_epoch=1024*len(selection)*len(selection)/256
+
+class CovE1SelMSFT(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1Generator):
+    test_days=10
+    horizon=10
+    selection=["GOOGL","AAPL","NFLX","INTC","IBM","MSFT"]
+    steps_per_epoch=1024*len(selection)*len(selection)/256
 
 Process = eval(process)
 
