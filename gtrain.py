@@ -784,6 +784,39 @@ class CovE1Generator:
     def test1(self):
         pass
 
+class CovE1fGenerator:
+    test_days=10
+    steps_per_epoch=10000
+    horizon=10
+    def validation_steps(self):
+        return 500
+        Ns=len(store["Returns"].columns)
+        return int(Ns*Ns*self.test_days/self.batch_size)
+
+    def generate(self,test=False):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+        horizon=self.horizon
+        ibg = self.index_batch_generator(test)
+        while True:
+            batch_day, batch_stockA_number, batch_stockB_number = next(ibg)
+            X1=sp[batch_stockA_number]
+            X2=sp[batch_stockB_number]
+            X3=cr[batch_day]
+            Y=np.zeros((batch_size,1),np.float32)
+            for i in range(batch_size):
+                rA=10*r[batch_day[i]+1:batch_day[i]+horizon,batch_stockA_number[i]]
+                rB=10*r[batch_day[i]+1:batch_day[i]+horizon,batch_stockB_number[i]]
+                Y[i,0]=np.average(rA*rB)
+            yield [X1,X2,X3],Y
+    def test1(self):
+        pass
+
 class CovE1(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2a,CovE1Generator):
     test_days=10
     steps_per_epoch=10000
@@ -807,12 +840,54 @@ class CovE1SelIBM(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Se
     selection=["GOOGL","AAPL","NFLX","INTC","IBM"]
     steps_per_epoch=1024*len(selection)*len(selection)/256
 
-class CovE1SelMSFT(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1Generator):
+class CovE1fSel6x6(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1fGenerator):
     test_days=10
     horizon=10
     selection=["GOOGL","AAPL","NFLX","INTC","IBM","MSFT"]
     steps_per_epoch=1024*len(selection)*len(selection)/256
 
+class CovE1SelMSFT(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2Sel,CovE1Generator):
+    test_days=10
+    horizon=10
+    selection=["GOOGL","AAPL","NFLX","INTC","IBM","MSFT"]
+    steps_per_epoch=1024*len(selection)*len(selection)/256
+    def test1(self):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        R=store["ProjectedReturns"]
+        r=store["ProjectedReturns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+        horizon=self.horizon
+
+        selection_index=[list(R.columns).index(x) for x in self.selection]
+        data=[]
+        for i in range(len(r)-self.horizon):
+#        for i in range(200):
+            print(i)
+            for a in selection_index:
+                nameA=R.columns[a]
+                for b in selection_index:
+                    nameB=R.columns[b]
+                    X1=sp[a].reshape((200,1))
+                    X2=sp[b].reshape((200,1))
+                    X3=cr[i].reshape((200,1))
+                    Yab=self.model.predict([X1.T,X2.T,X3.T])[0,0]
+                    Yaa=self.model.predict([X1.T,X1.T,X3.T])[0,0]
+                    Ybb=self.model.predict([X2.T,X2.T,X3.T])[0,0]
+                    rA=10*r[i:i+horizon,a]
+                    rB=10*r[i:i+horizon,b]
+                    sA=np.sqrt(np.average(rA*rA))
+                    sB=np.sqrt(np.average(rB*rB))
+                    Yt=np.average(rA*rB)
+                    CorrP=Yab/np.sqrt(Yaa*Ybb)
+                    CorrT=Yt/(sA*sB)
+                    data.append(dict(date=R.index[i],A=nameA,B=nameB,Yp=Yab,Yt=Yt,CorrP=CorrP,CorrT=CorrT))
+        df=pd.DataFrame(data,columns=["date","A","B","Yp","Yt","CorrP","CorrT"])
+        df.to_csv("6x6.csv")
+        
 Process = eval(process)
 
 p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)
