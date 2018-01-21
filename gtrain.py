@@ -600,6 +600,70 @@ class DayNameNameIndexGenerator2Sel:
                 c_batch.append(c)
             yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
 
+class DayNameNameIndexGenerator2SelHybrid:
+    test_days=600
+    
+    def index_generator(self,test=False):
+        r=store["Returns"]
+        selection_index=[list(r.columns).index(x) for x in self.selection]
+        Nd=len(r.index)
+        Ns=len(r.columns)
+        test_days=self.test_days
+        horizon=self.horizon
+        if test:
+            day_order=np.arange(Nd-test_days-horizon-1,Nd-horizon-2)
+        else:
+            day_order=np.arange(Nd-horizon-test_days-horizon-2)
+
+        names_order=np.array(selection_index)
+        all_names_order1=np.arange(Ns)
+        all_names_order2=np.arange(Ns)
+
+        if test:
+            while True:
+                for a in day_order:
+                    for b in names_order:
+                        for c in names_order:
+                            if b==c:
+                                continue
+                            yield a,b,c                
+        else:
+            while True:
+                data=[]
+                np.random.shuffle(day_order)
+                np.random.shuffle(all_names_order1)
+                np.random.shuffle(all_names_order2)
+                for i in range(256):
+                    if all_names_order1[i]==all_names_order2[i]:
+                        continue
+                    data.append([day_order[i],all_names_order1[i],all_names_order2[i]])
+                    data.append([day_order[i],all_names_order2[i],all_names_order1[i]])
+                for a in day_order:
+                    for b in names_order:
+                        for c in names_order:
+                            if b==c:
+                                continue
+                            data.append([a,b,c])
+                            data.append([a,c,b])
+                                
+                indices=np.array(data)
+                np.random.shuffle(all_names_order2)
+                for a,b,c in indices:
+                    yield a,b,c
+                         
+    def index_batch_generator(self,test=False):
+        g=self.index_generator(test)
+        while True:
+            a_batch=[]
+            b_batch=[]
+            c_batch=[]
+            for i in range(self.batch_size):
+                a,b,c=next(g)
+                a_batch.append(a)
+                b_batch.append(b)
+                c_batch.append(c)
+            yield np.array(a_batch),np.array(b_batch),np.array(c_batch)
+
 class RE0ModelArchitecture:
     E=200
     def create_model(self):
@@ -817,6 +881,37 @@ class CovE1fGenerator:
     def test1(self):
         pass
 
+class CovE1fGenerator100:
+    test_days=10
+    steps_per_epoch=10000
+    horizon=10
+    def validation_steps(self):
+        return 500
+        Ns=len(store["Returns"].columns)
+        return int(Ns*Ns*self.test_days/self.batch_size)
+
+    def generate(self,test=False):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+        horizon=self.horizon
+        ibg = self.index_batch_generator(test)
+        while True:
+            batch_day, batch_stockA_number, batch_stockB_number = next(ibg)
+            X1=sp[batch_stockA_number]
+            X2=sp[batch_stockB_number]
+            X3=cr[batch_day]
+            Y=np.zeros((batch_size,1),np.float32)
+            for i in range(batch_size):
+                rA=100*r[batch_day[i]+1:batch_day[i]+horizon,batch_stockA_number[i]]
+                rB=100*r[batch_day[i]+1:batch_day[i]+horizon,batch_stockB_number[i]]
+                Y[i,0]=np.average(rA*rB)
+            yield [X1,X2,X3],Y
+
 class CovE1(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2a,CovE1Generator):
     test_days=10
     steps_per_epoch=10000
@@ -887,7 +982,55 @@ class CovE1SelMSFT(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2S
                     data.append(dict(date=R.index[i],A=nameA,B=nameB,Yp=Yab,Yt=Yt,CorrP=CorrP,CorrT=CorrT))
         df=pd.DataFrame(data,columns=["date","A","B","Yp","Yt","CorrP","CorrT"])
         df.to_csv("6x6.csv")
-        
+
+class CovE1Hybrid(ModelBasis,CovE1ModelArchitecture,DayNameNameIndexGenerator2SelHybrid,CovE1fGenerator):
+    test_days=600
+    selection=["GOOGL","AAPL","NFLX","INTC","IBM","MSFT"]
+    steps_per_epoch=600*len(selection)*len(selection)/256+2
+    multiplier=10
+    def validation_steps(self):
+        return self.steps_per_epoch
+    def test1(self):
+        E=self.E
+        store=self.store
+        batch_size=self.batch_size
+        R=store["Returns"]
+        r=store["Returns"].as_matrix()
+        cr=store["CompressedReturns"].as_matrix()[:,:E]
+        sp=store["StockProjections"].as_matrix()[:,:E]
+        N,M=r.shape
+        horizon=self.horizon
+
+        selection_index=[list(R.columns).index(x) for x in self.selection]
+        data=[]
+        for i in range(len(r)-self.horizon):
+#        for i in range(200):
+            if not i%100:
+                print(i)
+            for a in selection_index:
+                nameA=R.columns[a]
+                for b in selection_index:
+                    nameB=R.columns[b]
+                    X1=sp[a].reshape((200,1))
+                    X2=sp[b].reshape((200,1))
+                    X3=cr[i].reshape((200,1))
+                    Yab=self.model.predict([X1.T,X2.T,X3.T])[0,0]
+                    Yaa=self.model.predict([X1.T,X1.T,X3.T])[0,0]
+                    Ybb=self.model.predict([X2.T,X2.T,X3.T])[0,0]
+                    rA=10*r[i+1:i+horizon+1,a]
+                    rB=10*r[i+1:i+horizon+1,b]
+                    sA=np.sqrt(np.average(rA*rA))
+                    sB=np.sqrt(np.average(rB*rB))
+                    Yt=np.average(rA*rB)
+                    CorrP=Yab/np.sqrt(Yaa*Ybb)
+                    CorrT=Yt/(sA*sB)
+                    data.append(dict(date=R.index[i],A=nameA,B=nameB,Yp=Yab,Yt=Yt,CorrP=CorrP,CorrT=CorrT))
+        df=pd.DataFrame(data,columns=["date","A","B","Yp","Yt","CorrP","CorrT"])
+        df.to_csv("Hybrid_6x6.csv")
+
+class CovE1Hybrid300(CovE1Hybrid):
+    test_days=300
+    
 Process = eval(process)
 
 p=Process(store, regularization=regularization,batch_size=batch, modelfile=modelfile, weightsfile=weightsfile)
