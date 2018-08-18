@@ -1218,7 +1218,157 @@ def _logrcMid200(store,outputstore,H=600,N=200):
         df_scale.to_csv("x_scale.csv")
         output["%s_scaled"%name]        = df_scaled
         output["%s_scale"%name]         = df_scale
-    
+
+def _logrcMid200(store,outputstore,H=600,N=200):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close/close.shift(-1)).apply(np.log)
+    H = (H+len(returns)-2)%(len(returns)-2)
+
+    remove=returns.apply(np.isfinite).sum()<0.9*len(returns)
+    print("Remove (less than 90% data in total):",returns.columns[remove],remove.sum())
+    logging.warning("Remove (less than 90% data in total):"+str(returns.columns[remove])+" "+str(remove.sum()))
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+
+    remove=returns.apply(np.isfinite)[:H].sum()<0.9*H
+    logging.warning("Remove (less than 90% data in covariance period):"+str(returns.columns[remove])+" "+str(remove.sum()))
+    print("Remove (less than 90% data in the covariance period) :",returns.columns[remove],remove.sum())
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+
+    returns.fillna(0,inplace=True)
+    returns[~returns.apply(np.isfinite)]=0
+    returns=returns[1:-1]
+    close=close[1:-1]
+
+
+    full_r=returns.as_matrix()
+    logging.info("Returns shape (full):"+str(full_r.shape))
+    r=returns.as_matrix()[200:800].T   # <----------------------- Mid
+    logging.info("Returns shape (covariance period):"+str(r.shape))
+
+
+    cov=pd.DataFrame(columns=returns.columns,index=returns.columns)
+    for i,n in enumerate(returns.columns):
+        c=(r[i]*r).mean(axis=1)
+        cov.loc[n,:]=c
+    C=np.array(cov.as_matrix(),dtype=np.double)
+    eigenvalues,eigenvectors=np.linalg.eigh(C)
+    eigenvalues=np.flip(eigenvalues,0)
+    eigenvectors=eigenvectors.T
+    eigenvectors=np.flip(eigenvectors,0)
+    eigen_df=pd.DataFrame(np.hstack((eigenvalues.reshape((-1,1)),eigenvectors)),columns=["Eigenvalue"]+list(cov.columns))
+    cov.to_csv("tmp.csv")
+    cov=pd.read_csv("tmp.csv",index_col=0)
+    outputstore["Covariance"]=cov
+    d=np.sqrt(cov.as_matrix().diagonal())
+    corr = cov/np.outer(d,d)
+    outputstore["Correlations"]=corr
+    outputstore["Eigenvectors"]=eigen_df
+
+    r=r.T
+    with open("dim_std.csv","w") as f:
+        f.write("i;std;std_full;dC;maxrelC;eigenvalue\n")
+        for i in range(1,len(eigenvectors)):
+            O=eigenvectors[:i].T
+            y=np.dot(r,O)
+            x=np.dot(y,O.T)
+            C1=np.dot(O,np.dot(np.diag(eigenvalues[:i]),O.T))
+            dC=(C-C1).std()
+            maxrelC=np.max(np.abs((C-C1)/C))
+            full_y=np.dot(full_r,O)
+            full_x=np.dot(full_y,O.T)
+            f.write("%3d;%+10.8f;%+10.8f;%+10.8f;%+10.8f;%+12.8f\n"%(i,(r-x).std(),(full_r-full_x).std(),dC,maxrelC,eigenvalues[i-1]))
+
+    O=eigenvectors[:N].T
+    #inv_sqrt_L=np.diag(np.power(eigenvalues[:N],-0.5))
+    #D=np.dot(O,inv_sqrt_L)
+    y=np.dot(full_r,O)
+    pr = np.dot(y,O.T)
+    creturns_df = pd.DataFrame(y,index=returns.index,columns=["m%02d"%(i) for i in range(y.shape[1])])
+    projected_returns_df = pd.DataFrame(pr,index=returns.index,columns=returns.columns)
+    stock_df = pd.DataFrame(O,columns=["o%02d"%(i) for i in range(N)],index=returns.columns)
+
+    for name,df,subtract_mean in [
+        ("Close",close,True),
+        ("Returns",returns,False),
+        ("CompressedReturns",creturns_df,False),
+        ("ProjectedReturns",projected_returns_df,False),
+        ("StockProjections",stock_df,False)
+        ]:
+        print("Df:   "+name)
+        outputstore[name] = df
+
+        if scale.lower()=="yes":
+            print ("Scale "+name)
+            df_scale = scale_df(df,subtract_mean=subtract_mean)
+        else:
+            print ("Trivial Scale "+name)
+            df_scale = trivial_scale_df(df)
+
+        df_scaled                       = rescale_df(df,df_scale)
+        df_scale.to_csv("x_scale.csv")
+        output["%s_scaled"%name]        = df_scaled
+        output["%s_scale"%name]         = df_scale
+
+def _rcluster(store,outputstore,H=600,N=200,C=3):
+    print("close")
+    close=store["Close"].copy()
+    close.fillna(method="ffill",inplace=True)
+    close.fillna(0,inplace=True)
+
+    print("returns")
+    returns=(close/close.shift(-1)).apply(np.log)
+    H = (H+len(returns)-2)%(len(returns)-2)
+
+    remove=returns.apply(np.isfinite).sum()<0.9*len(returns)
+    print("Remove (less than 90% data in total):",returns.columns[remove],remove.sum())
+    logging.warning("Remove (less than 90% data in total):"+str(returns.columns[remove])+" "+str(remove.sum()))
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+
+    remove=returns.apply(np.isfinite)[:H].sum()<0.9*H
+    logging.warning("Remove (less than 90% data in covariance period):"+str(returns.columns[remove])+" "+str(remove.sum()))
+    print("Remove (less than 90% data in the covariance period) :",returns.columns[remove],remove.sum())
+    returns=returns.loc[:,~remove]
+    close=close.loc[:,~remove]
+
+    returns.fillna(0,inplace=True)
+    returns[~returns.apply(np.isfinite)]=0
+    returns=returns[1:-1]
+    close=close[1:-1]
+
+
+    full_r=returns.as_matrix()
+    logging.info("Returns shape (full):"+str(full_r.shape))
+    r=returns.as_matrix()[200:800].T   # <----------------------- Mid
+    logging.info("Returns shape (covariance period):"+str(r.shape))
+
+
+    for name,df,subtract_mean in [
+        ("Close",close,True),
+        ("Returns",returns,False),
+        ]:
+        print("Df:   "+name)
+        outputstore[name] = df
+
+        if scale.lower()=="yes":
+            print ("Scale "+name)
+            df_scale = scale_df(df,subtract_mean=subtract_mean)
+        else:
+            print ("Trivial Scale "+name)
+            df_scale = trivial_scale_df(df)
+
+        df_scaled                       = rescale_df(df,df_scale)
+        df_scale.to_csv("x_scale.csv")
+        output["%s_scaled"%name]        = df_scaled
+        output["%s_scale"%name]         = df_scale
+
 store = pd.HDFStore(storefile)
 output = pd.HDFStore(outputfile)
 logging.info("Process "+process_function)
