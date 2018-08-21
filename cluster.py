@@ -206,20 +206,71 @@ class BinaryClassifier:
 
 
 class Genome:
+    Model = BinaryClassifier
     def __init__(self,genome_size, identifier=None):
-        self.genome = np.random.rand(genome_size)>0.5
+        if type(genome_size) is int:
+            self.genome = np.random.rand(genome_size)>0.5
+        else:
+            self.genome = np.array(genome_size)
         self.identifier = identifier
         self.fitness = None
+        self.model = self.Model(genome_size)
+        if identifier is None:
+            self.weightsfile = None
+        else:
+            self.weightsfile = "%s_weights.h5"%identifier
+        self.predicted_genome = None
+
+    def fit(self,x):
+        self.model.fit(x,self.genome,epochs=10)
+        self.save_weights()
+        self.predicted_genome = self.model.predict(x)
+
+    def save_weights(self,weightsfile=None):
+        if weightsfile is None:
+            weightsfile = self.weightsfile
+        if weightsfile is not None:
+            self.model.save_weights(weightsfile)
+    def load_weights(self,weightsfile):
+        if weightsfile is None:
+            weightsfile = self.weightsfile
+        if weightsfile is not None:
+            if exists(weightsfile):
+                logging.info("Loading genome weights %s"%weightsfile)
+                self.model.load_weights(weightsfile, by_name=True)
+            else:
+                logging.info("Genome weights %s do not exist"%weightsfile)
+        else:
+            logging.info("Genome %s weightfile not specified" % self.identifier)
 
     def __len__(self):
         return len(self.genome)
 
+    def clone(self,identifier=None):
+        g=Genome(self.genome.copy(), identifier)
+        g.load_weights(self.weightsfile)
+        g.save_weights()
+        return g
+
     def mutate(self, identifier=None):
-        g=Genome(self.genome, identifier)
-        g.genome = np.array(self.genome)
+        g=self.clone(identifier)
         n = int(np.random.uniform(0,len(g)))
         g.genome[n] = not g.genome[n]
-        return  g
+        return g
+
+    def predicted(self, identifier=None):
+        if self.predicted_genome is not None:
+            if np.any(self.predicted_genome!=self.genome):
+                g=self.clone(identifier)
+                g.genome = self.predicted_genome.copy()
+                g.predicted_genome = self.predicted_genome.copy()
+                return g
+
+    def cross(self,parent,identifier=None):
+        g=self.clone(identifier)
+        index = np.random.randint(0,len(self),len(self)/2)
+        g.genome[index] = parent.genome[index]
+        return g
 
     def __str__(self):
         return "Genome(%d,'%s', sum=%d, fitness=%s)"%(len(self.genome), self.identifier,np.sum(self.genome),str(fitness))
@@ -227,12 +278,46 @@ class Genome:
 
 
 class GeneticOptimizer:
-    def __init__(self,pool_size,genome_size):
+    def __init__(self,pool_size,x):
         self.pool_size = pool_size
-        self.genome_size = genome_size
-
-
-
+        self.genome_size = len(x)
+        self.x=x
+        self.pool = []
+        self.measure = Measure(x)
+    def step(self):
+        while len(self.pool)<self.pool_size:
+            identifier = len(self.pool)+1
+            g = Genome(self.genome_size,identifier=identifier)
+        g.fit(x)
+        self.pool.append((self.measure(g.predicted_genome), g))
+        action = np.random.randint(1,5)
+        self.pool = sorted(self.pool)
+        out = self.pool[0]
+        self.pool = self.pool[1]
+        if action == 1:
+            a = np.random.randint(0,len(self.pool))
+            b = np.random.randint(0,len(self.pool))
+            if a!=b:
+                parent_a = self.pool[a][1]
+                parent_b = self.pool[b][1]
+                g=parent_a.cross(parent_b,identifier=out.identifier)
+                g.fit(x)
+                self.pool.append((self.measure(g.predicted_genome),g))
+        if action == 2:
+            i = np.random.randint(0,len(self.pool))
+            g = self.pool[i][1].mutate(out.identifier)
+            g.fit(x)
+            self.pool.append((self.measure(g.predicted_genome), g))
+        if action == 3:
+            i = np.random.randint(0,len(self.pool))
+            g = self.pool[i][1].predicted(out.identifier)
+            if g is not None:
+                self.pool.append((self.measure(g.predicted_genome), g))
+        if action == 4:
+            i = np.random.randint(0,len(self.pool))
+            g = self.pool[i][1].fit(self.x)
+            self.pool[i] = (self.measure(g.predicted_genome), g)
+            
 store = pd.HDFStore(inputfile)
 table = store[table_name]
 
