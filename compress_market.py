@@ -3,11 +3,14 @@ import logging
 import numpy as np
 
 from keras.models import Sequential
-from keras.layers import Dense, Activation
-from keras.layers import Input
+from keras.layers import Dense, Activation,ReLU,LeakyReLU
+from keras.layers import Input, GaussianDropout, Dropout
 from keras.models import Model
 from keras.models import model_from_yaml
 from keras import regularizers
+from keras import backend as K
+K.tensorflow_backend._get_available_gpus()
+#input()
 
 store = pd.HDFStore("store.h5")
 outputstore = pd.HDFStore("compress_output.h5")
@@ -51,34 +54,117 @@ def make_model_seq(inputs,outputs,regularization=0.001):
     return model
 
 def make_model(inputs,outputs,regularization=0.0000001):
-    L1 = int(1 * max(inputs, outputs))
+    L1 = int(2 * max(inputs, outputs))
     L2 = int(max(inputs/2,3*outputs))
     L3 = int(min(inputs/2,3*outputs))
 
     big_input = Input(shape=(inputs,))
     small_input = Input(shape=(outputs,))
-    encoded=Dense(L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(big_input)
-    encoded=Dense(L2, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
-#    encoded=Dense(L3, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+    encoded=GaussianDropout(0.4)(big_input)
+    encoded=Dense(L1,  use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+    encoded=LeakyReLU()(encoded)
+    encoded=GaussianDropout(0.3)(encoded)
+#    encoded=Dense(L2, use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+#    encoded=LeakyReLU()(encoded)
+    encoded=Dense(L3, use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+    encoded=LeakyReLU()(encoded)
+    encoded=GaussianDropout(0.2)(encoded)
     encoded=Dense(outputs, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
 
-    decoded=Dense(L3, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
-    decoded=Dense(L2, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(decoded)
- #   decoded=Dense(L1, activation='relu', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(decoded)
-    decoded=Dense(inputs, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(decoded)
+    decoded=Dense(L3, use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(encoded)
+    decoded=LeakyReLU()(decoded)
+#    decoded=Dense(L2, use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(decoded)
+#    decoded=LeakyReLU()(decoded)
+    decoded=Dense(L1, use_bias=True, kernel_regularizer=regularizers.l2(regularization))(decoded)
+    decoded=LeakyReLU()(decoded)
+    decoded=Dense(inputs, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(decoded)
 
     autoencoder = Model(big_input, decoded)
     autoencoder.compile(optimizer='rmsprop', loss='mse')
     encoder = Model(big_input,encoded)
 
-    deco = autoencoder.layers[-3](small_input)
+#    deco = autoencoder.layers[-4](small_input)
 #    deco = autoencoder.layers[-3](deco)
-    deco = autoencoder.layers[-2](deco)
-    deco = autoencoder.layers[-1](deco)
+#    deco = autoencoder.layers[-2](deco)
+#    deco = autoencoder.layers[-1](deco)
 
-    decoder = Model(small_input,deco)
+ #   decoder = Model(small_input,deco)
 
-    return autoencoder,encoder,decoder
+    return autoencoder,encoder#,decoder
+
+
+def make_model_par(inputs,outputs,L1f=1,L2f=1,L3f=1, dropout=0.4, activation="LeakyReLU()",regularization=0.0000001,optimizer='rmsprop',loss='mse'):
+    L1 = int(L1f * max(inputs, outputs))
+    L2 = int(L2f * max(inputs/2,3*outputs))
+    L3 = int(L3f * min(inputs/2,3*outputs))
+
+    activation = eval(activation)
+    big_input = Input(shape=(inputs,))
+    small_input = Input(shape=(outputs,))
+    encoded=GaussianDropout(dropout)(big_input)
+    encoded=Dense(L1,  use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+    encoded=LeakyReLU()(encoded)
+    encoded=GaussianDropout(dropout*0.75)(encoded)
+#    encoded=Dense(L2, use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+#    encoded=LeakyReLU()(encoded)
+    encoded=Dense(L3, use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+    encoded=LeakyReLU()(encoded)
+    encoded=GaussianDropout(dropout*0.5)(encoded)
+    encoded=Dense(outputs, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization))(encoded)
+
+    decoded=Dense(L3, use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(encoded)
+    decoded=LeakyReLU()(decoded)
+#    decoded=Dense(L2, use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(decoded)
+#    decoded=LeakyReLU()(decoded)
+    decoded=Dense(L1, use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(decoded)
+    decoded=LeakyReLU()(decoded)
+    decoded=Dense(inputs, activation='linear', use_bias=True, kernel_regularizer=regularizers.l2(regularization*2))(decoded)
+
+    autoencoder = Model(big_input, decoded)
+    autoencoder.compile(optimizer=optimizer, loss=loss)
+    encoder = Model(big_input,encoded)
+
+#    deco = autoencoder.layers[-4](small_input)
+#    deco = autoencoder.layers[-3](deco)
+#    deco = autoencoder.layers[-2](deco)
+#    deco = autoencoder.layers[-1](deco)
+
+ #   decoder = Model(small_input,deco)
+
+    return autoencoder,encoder#,decoder
+
+
+def evaluate_model(eigenvectors,r,validation_r,n,epochs,L1f=1,L2f=1,L3f=1, dropout=0.4, activation="LeakyReLU()",regularization=0.0000001,optimizer='rmsprop',loss='mse'):
+    inputs = r.shape[1]
+    autoencoder, encoder = make_model_par(inputs, n, L1f=L1f,L2f=L2f,L3f=L3f, dropout=dropout, activation=activation,regularization=regularization,optimizer=optimizer,loss=loss)
+    history = autoencoder.fit(r, r, batch_size=200, validation_data=(validation_r, validation_r), epochs=epochs,
+                              verbose=0)
+    print("  fit1")
+    ar = autoencoder.predict(r)
+    validation_ar = autoencoder.predict(validation_r)
+
+    O = eigenvectors[:n].T
+    y = np.dot(r, O)
+    x = np.dot(y, O.T)
+    validation_y = np.dot(validation_r, O)
+    validation_x = np.dot(validation_y, O.T)
+
+    std_r = (r - x).std()
+    std_validation_r = (validation_r - validation_x).std()
+
+    std_ar = (r - ar).std()
+    std_validation_ar = (validation_r - validation_ar).std()
+
+    return dict(
+        epochs=epochs,
+        n=n,
+        L1f=L1f, L2f=L2f, L3f=L3f, dropout=dropout, activation=activation, regularization=regularization,
+        optimizer=optimizer, loss=loss,
+        std_r=std_r,
+        std_validation_r=std_validation_r,
+        std_ar=std_ar,
+        std_validation_ar=std_validation_ar,
+    )
 
 def _logrc1(store,H=600):
     print("close")
@@ -141,13 +227,16 @@ def _logrc1(store,H=600):
 
 #        for i in range(1,len(eigenvectors)):
 
-        for i in range(1,100):
-            autoencoder, encoder, decoder = make_model(inputs, i)
-            history = autoencoder.fit(r, r, validation_data=(validation_r, validation_r), epochs=500, verbose=1)
+        for i in []:#range(20,100,10):
+            print (i)
+            autoencoder, encoder = make_model(inputs, i)
+            history = autoencoder.fit(r, r, batch_size=200, validation_data=(validation_r, validation_r), epochs=2000, verbose=0)
+            print ("  fit1")
             ar = autoencoder.predict(r)
             full_ar=autoencoder.predict(full_r)
             validation_ar=autoencoder.predict(validation_r)
-            history = autoencoder.fit(r, r, validation_data=(validation_r, validation_r), epochs=1000, verbose=1)
+            history = autoencoder.fit(r, r, batch_size=200, validation_data=(validation_r, validation_r), epochs=6000, verbose=0)
+            print ("  fit2")
             ar2 = autoencoder.predict(r)
             full_ar2=autoencoder.predict(full_r)
             validation_ar2=autoencoder.predict(validation_r)
@@ -182,6 +271,22 @@ def _logrc1(store,H=600):
             f.write("%(i)3d;%(std_r)+10.8f;%(std_full_r)+10.8f;%(std_validation_r)+10.8f;%(std_ar)+10.8f;%(std_full_ar)+10.8f;%(std_validation_ar)+10.8f;%(std_ar2)+10.8f;%(std_full_ar2)+10.8f;%(std_validation_ar2)+10.8f;\n"%locals())
             f.flush()
 
+        data=[]
+        for n in [20,50,100]:
+            for optimizer in ["sgd","rmsprop","adam"]:
+                for activation in ["LeakyReLU()","ReLU()"]:
+                    for regularization in [0.00000001,0.0000001,0.0000002,0.000001]:
+                        for dropout in [0.01, 0.1, 0.2, 0.4, 0.6]:
+                            for L1f in [0.5,1,2]:
+                                for L2f in [0.5,1, 2]:
+                                    for L3f in [0.5,1, 2]:
+                                        for epochs in [500,1000,5000]:
+                                            d=evaluate_model(eigenvectors, r, validation_r, n, epochs, L1f=L1f, L2f=L2f, L3f=L3f, dropout=dropout,
+                                                               activation=activation, regularization=regularization, optimizer=optimizer, loss='mse')
+                                            data.append(d)
+                                            print(d)
+                                            df=pd.DataFrame(data)
+                                            df.to_csv("compress_analysis.csv")
     print(r.shape)
     inputs = r.shape[1]
     outputs = 10
@@ -195,6 +300,7 @@ def _logrc1(store,H=600):
 
     #history = autoencoder.fit(full_r, full_r, validation_split=0.5, epochs=20, verbose=1)
 #    history=model.fit(r,r, epochs=20, verbose=1)
+
 
 
 _logrc1(store)

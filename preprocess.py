@@ -16,7 +16,9 @@ parser.add_argument('-t','--test',     help='Number of samples in test (100)',de
 parser.add_argument('-c','--scale',    help='Scale yes/no (yes)',default="yes")
 
 args = parser.parse_args()
-logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, filename='log.txt')
+
+#logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, filename='log.txt')
+logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
 inputfile=args.input
 storefile=args.store
